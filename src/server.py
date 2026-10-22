@@ -24,7 +24,7 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
@@ -112,14 +112,34 @@ def validate_config(raw):
         s = SCHEMA_BY_KEY.get(k)
         if not s:
             continue
-        try:
-            n = float(v)
-        except (TypeError, ValueError):
-            raise ValueError(f"{s['label']} must be a number")
-        if not (s["min"] <= n <= s["max"]):
-            raise ValueError(f"{s['label']} must be between {s['min']} and {s['max']}")
-        cfg[k] = int(n) if float(s["default"]).is_integer() and s["key"] != "min_hash_ratio" else n
+        cfg[k] = coerce(s, v)
+    check_cross(cfg)
     return cfg
+
+
+def coerce(s, v):
+    """Validate one numeric setting. Integer settings have int defaults; anything with a float
+    default (e.g. 2.0 %) keeps its decimals, so 1.5 % stays 1.5 % rather than becoming 1 %."""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{s['label']} must be a number")
+    if n != n or not (s["min"] <= n <= s["max"]):
+        raise ValueError(f"{s['label']} must be between {s['min']} and {s['max']}")
+    return int(round(n)) if isinstance(s["default"], int) else n
+
+
+def check_cross(cfg):
+    if cfg["min_input_mv"] >= cfg["max_input_mv"]:
+        raise ValueError("Min input voltage must be below max input voltage")
+
+
+# Settings that can be changed while a run is in progress. Hard limits are checked on every
+# sample, pass/fail criteria when the current point is judged, timings/steps from the next point.
+LIVE_KEYS = ["max_temp", "max_vr_temp", "max_power", "min_input_mv", "max_input_mv",
+             "min_hash_ratio", "max_error_pct", "max_reject_pct", "retries",
+             "warmup_s", "measure_s", "freq_step", "volt_step", "max_freq", "max_voltage",
+             "margin_steps"]
 
 
 class Bitaxe:
@@ -340,6 +360,29 @@ class Tuner:
         self.log(f"Restored original settings ({orig['freq']} MHz / {orig['volt']} mV) on request")
         return orig
 
+    def update_live(self, raw):
+        """Change limits during a run. The config dict is updated in place, so the run loop,
+        the per-sample safety checks and the per-point verdict all see the new values."""
+        if not isinstance(raw, dict) or not raw:
+            raise ValueError("Nothing to change")
+        locked = [k for k in raw if k not in LIVE_KEYS]
+        if locked:
+            other = {"host": "Miner address", "cooling": "Cooling"}
+            names = ", ".join(SCHEMA_BY_KEY[k]["label"] if k in SCHEMA_BY_KEY else other.get(k, k) for k in locked)
+            raise ValueError(f"{names} can't be changed during a run. Stop and start a new run instead.")
+        new = {k: coerce(SCHEMA_BY_KEY[k], v) for k, v in raw.items()}
+        with self.lock:
+            cfg = self.state["config"]
+            check_cross({**cfg, **new})
+            diffs = [(k, cfg.get(k), v) for k, v in new.items() if cfg.get(k) != v]
+            cfg.update(new)
+        if diffs:
+            self.log("Settings changed during run: " + "; ".join(
+                f"{SCHEMA_BY_KEY[k]['label']} {old} → {v}{(' ' + SCHEMA_BY_KEY[k]['unit']) if SCHEMA_BY_KEY[k]['unit'] else ''}"
+                for k, old, v in diffs))
+        self._save()
+        return [{"key": k, "old": old, "new": v} for k, old, v in diffs]
+
     def apply(self, host, freq, volt):
         if self.active:
             raise RuntimeError("Can't apply while a run is in progress")
@@ -558,14 +601,14 @@ class Tuner:
                     else:
                         hit_hard = res
                         break
+                if hit_hard:   # a safety stop always explains itself, even on the first point
+                    message = f"Stopped at a safety limit ({hit_hard['reason']})."
+                    break
                 if best_here is None:
                     message = ("The starting point was unstable; lower the start frequency/voltage."
                                if first else "No stable gain at the higher voltage; sweep complete.")
                     break
                 first = False
-                if hit_hard:
-                    message = f"Stopped at a safety limit ({hit_hard['reason']})."
-                    break
                 if hit_max:
                     message = "Reached the configured max frequency without instability."
                     break
@@ -699,6 +742,7 @@ def api_state():
         s["server_time"] = time.time()
         s["storage_error"] = tuner.storage_error
         s["version"] = VERSION
+        s["live_keys"] = LIVE_KEYS
         s["epoch"] = tuner.epoch
         s["schema"] = SCHEMA
         s["test_mode"] = TEST_MODE
@@ -761,6 +805,15 @@ def api_history():
             since = 0.0
         samples = [x for x in tuner.history if x["t"] > since]
         return jsonify(epoch=tuner.epoch, samples=samples, markers=tuner.markers, now=time.time())
+
+
+@app.post("/api/config")
+def api_config():
+    try:
+        changes = tuner.update_live(request.json or {})
+    except ValueError as e:
+        return err(str(e))
+    return jsonify({"ok": True, "changed": changes})
 
 
 @app.post("/api/stop")

@@ -3,7 +3,7 @@ id: kyle-bitaxe-tuner
 category: bitcoin
 name: Bitaxe Tuner
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bitaxe-tuner-icon.svg
-version: "0.2.4"
+version: "0.2.5"
 tagline: Find safe overclock profiles for your Bitaxe automatically
 description: >-
   Bitaxe Tuner steps your Bitaxe's frequency and core voltage up in small increments, restarts
@@ -32,12 +32,12 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  New Cooling option (Air / Water). Water cooling raises the frequency ceiling and power limit and
-  lengthens the warm-up so the loop's temperature settles. Core voltage stays capped, because the
-  ~1,300 mV 24/7 limit is about chip wear rather than heat. The app now warns when a board doesn't
-  report voltage-regulator temperature, since water blocks usually don't cool it.
+  Limits can now be changed while a test is running (Adjust limits in the status bar, then Apply to
+  running test). Temperature, power and input limits apply immediately; hashrate, error and reject
+  limits apply when the current point is judged; timings and steps from the next point. Every change
+  is written to the log.
 
 
-  0.2.3 added 12 V board support (Naja Duo) and raised the max power limit to 400 W.
+  Fix: decimal limits such as a 1.5 % max error rate were being rounded down to whole numbers.
 submitter: Kyle
 submission: https://github.com/xmodem240/umbrel-community-app-store

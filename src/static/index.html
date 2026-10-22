@@ -134,6 +134,11 @@ button.big{font-size:15px;padding:13px 16px;letter-spacing:.02em}
 .cooling label{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:14px;color:var(--ink);cursor:pointer}
 .cooling input{width:auto;margin:0;accent-color:var(--accent)}
 #coolhint{max-width:760px}
+.applybar{position:sticky;bottom:12px;z-index:25;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  margin:12px 0 0;padding:10px 12px;border-radius:10px;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
+.applybar[hidden],#livenote[hidden]{display:none}
+#livenote{margin:0 0 10px}
+input:disabled{opacity:.5;cursor:not-allowed}
 .rec{border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--page);display:flex;flex-direction:column}
 .rec h3{margin:0 0 2px;font-size:15px}
 .rec .big{font-size:22px;font-weight:700;margin:6px 0}
@@ -179,6 +184,7 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
     <div class="rb-actions">
       <button class="danger big" id="emerg" title="Abort immediately and put the miner back on its original settings">■ EMERGENCY STOP</button>
       <button class="ghost" id="stop">Stop run</button>
+      <button class="ghost" id="adjust">Adjust limits</button>
     </div>
   </section>
 
@@ -199,7 +205,12 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
 
     <details>
       <summary>Limits and tuning settings</summary>
+      <div class="hint" id="livenote" hidden>A test is running. Settings you can't change mid-run are greyed out.</div>
       <div class="grid" id="settings"></div>
+      <div class="applybar" id="applybar" hidden>
+        <div><b id="applytxt"></b><div class="hint">Temperature, power and input limits apply immediately. Hashrate, error and reject limits apply when the current point is judged. Timings and steps apply from the next point.</div></div>
+        <button id="applylive">Apply to running test</button>
+      </div>
     </details>
 
     <div class="row" style="margin-top:14px">
@@ -488,6 +499,21 @@ function coolHint() {
     ? "Water: higher frequency ceiling and power limit, longer warm-up so the loop's temperature settles. Core voltage stays capped (about 1,300 mV is the 24/7 limit for chip wear, whatever the cooling). Water blocks usually don't cool the voltage regulator; give it airflow or heatsinks."
     : "";
 }
+/* ---- live (mid-run) limit changes ---- */
+function liveDiff() {
+  const s = last; if (!s || !s.active || !schema) return {};
+  const out = {};
+  for (const k of s.live_keys || []) {
+    const i = $("f_" + k); if (!i || i.value === "") continue;
+    if (Number(i.value) !== Number(s.config[k])) out[k] = i.value;
+  }
+  return out;
+}
+function pendingLive() {
+  const d = liveDiff(), n = Object.keys(d).length;
+  $("applybar").hidden = !n;
+  if (n) $("applytxt").textContent = `${n} unsaved change${n > 1 ? "s" : ""} to the running test`;
+}
 function readForm() { const o = { host: $("host").value.trim(), cooling: coolingVal() }; for (const s of schema) o[s.key] = $("f_" + s.key).value; return o; }
 function devInfo(d) {
   if (!d) { $("dev").innerHTML = ""; return; }
@@ -518,6 +544,11 @@ function render(s) {
   if (s.device && !$("dev").innerHTML) devInfo(s.device);
 
   $("start").disabled = active; $("reset").disabled = active; $("detect").disabled = active;
+  const live = new Set(s.live_keys || []);
+  for (const f of schema) { const i = $("f_" + f.key); if (i) i.disabled = active && !live.has(f.key); }
+  $("host").disabled = active; document.querySelectorAll('input[name="cooling"]').forEach(r => r.disabled = active);
+  $("livenote").hidden = !active;
+  pendingLive();
   const rb = $("restore");
   if (!active && s.original) { rb.style.display = ""; rb.textContent = `Restore original settings (${s.original.freq} MHz / ${s.original.volt} mV)`; } else rb.style.display = "none";
 
@@ -657,6 +688,19 @@ $("range").onclick = e => {
   range = b.dataset.r; [...$("range").children].forEach(x => x.classList.toggle("on", x === b)); drawCharts();
 };
 $("samplesbox").addEventListener("toggle", drawCharts);
+$("settings").addEventListener("input", pendingLive);
+$("applylive").onclick = async () => {
+  const d = liveDiff(); if (!Object.keys(d).length) return;
+  $("applylive").disabled = true;
+  try {
+    const r = await api("/api/config", d);
+    const lbl = k => (schema.find(x => x.key === k) || {}).label || k;
+    toast(r.changed.length ? "Applied: " + r.changed.map(c => `${lbl(c.key)} ${c.new}`).join(", ") : "No changes");
+    await poll.once();
+  } catch (e) { toast(e.message); }
+  $("applylive").disabled = false; pendingLive();
+};
+$("adjust").onclick = () => { const d = document.querySelector("details"); d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); };
 poll();
 </script>
 </body>
