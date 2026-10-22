@@ -2,6 +2,11 @@ name: Build image
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths:
+      - "src/**"
+      - "kyle-bitaxe-tuner/umbrel-app.yml"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,7 +26,15 @@ jobs:
       - id: meta
         run: |
           echo "owner=$(echo '${{ github.repository_owner }}' | tr A-Z a-z)" >> "$GITHUB_OUTPUT"
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          # Tag pushes use the tag (v1.2.3 -> 1.2.3); branch pushes use the version in umbrel-app.yml,
+          # so the image tag always matches what docker-compose.yml asks for.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="$(sed -nE 's/^version:[[:space:]]*"?([^"]+)"?[[:space:]]*$/\1/p' kyle-bitaxe-tuner/umbrel-app.yml)"
+          fi
+          test -n "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: src
