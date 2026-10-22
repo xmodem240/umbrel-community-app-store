@@ -25,7 +25,7 @@ nothing else to it.
 ## Node software
 
 Pick it on the dashboard (**Node** card), no file editing: the LoneStrike Labs
-**Bitcoin Cash Node** Umbrel app, WillItMod's **AxeBCH** (unverified, see
+**Bitcoin Cash Node** Umbrel app, WillItMod's **AxeBCH** (you enter its RPC password; see
 [docs/bch-differences.md](docs/bch-differences.md)), or any other BCHN-compatible node.
 
 ## Install on Umbrel

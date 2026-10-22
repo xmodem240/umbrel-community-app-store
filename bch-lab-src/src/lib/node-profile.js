@@ -69,30 +69,21 @@ const PROFILES = {
     id: 'axebch',
     label: 'AxeBCH (WillItMod)',
     software: 'BCHN',
-    verified: false,
+    verified: true,
     fixedLogin: false,
     note:
-      'Node + solo pool app from the WillItMod store, running Bitcoin Cash Node. Its container name, RPC login and ZMQ port ' +
-      'were not published anywhere readable, so these are BCHN defaults plus guesses: press Test, and if it fails find the ' +
-      'node container with "docker ps" on your Umbrel and fill in what its compose file says.',
+      'Node + solo pool app from the WillItMod store (willitmod-dev-bch). Host, ports and user are read from its own compose file ' +
+      '(v0.9.27). The RPC password is generated for each install, so you have to enter it: on your Umbrel run ' +
+      '"grep rpcpassword ~/umbrel/app-data/willitmod-dev-bch/data/node/bitcoin.conf".',
     defaults: {
-      host: '',
-      rpcPort: 8332,
-      rpcUser: '',
+      host: 'willitmod-dev-bch_bchn_1',
+      rpcPort: 28332,
+      rpcUser: 'bch',
       rpcPass: '',
       zmqHost: '',
-      zmqPort: 28332,
+      zmqPort: 28334,
     },
-    // Guesses at the node container's name. A hit only proves a container of
-    // that name exists, not that it is the node; the operator still presses Test.
-    candidates: [
-      'willitmod-dev-bch_bchn_1',
-      'willitmod-dev-bch_bitcoind_1',
-      'willitmod-dev-bch_node_1',
-      'willitmod-bch_bchn_1',
-      'willitmod-bch_bitcoind_1',
-      'willitmod-bch_node_1',
-    ],
+    candidates: ['willitmod-dev-bch_bchn_1'],
   },
   custom: {
     id: 'custom',

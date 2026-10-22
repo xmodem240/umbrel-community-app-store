@@ -1852,8 +1852,8 @@ startEventStream();
       fillFromDefaults(profile(first.profile));
       if (!profile(first.profile).fixedLogin) fields.host.value = first.host;
       applyProfile(first.profile);
-      say(found.map((f) => `Found ${profile(f.profile).label}: container ${f.host}${f.verified ? '' : ' (name is a guess - press Test)'}`)
-        .concat(profile(first.profile).fixedLogin ? ['Press Save & restart to use it.'] : ['Fill in the RPC login, then press Test.']), 'ok');
+      say(found.map((f) => `Found ${profile(f.profile).label}: container ${f.host}`)
+        .concat(profile(first.profile).fixedLogin ? ['Press Save & restart to use it.'] : ['Enter its RPC password (see the note above), then press Test.']), 'ok');
     } catch (err) {
       say(err.message, 'error');
     }

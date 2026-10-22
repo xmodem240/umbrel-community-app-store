@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.1.0 - unreleased
+## 0.1.1
+
+- AxeBCH preset corrected from WillItMod's own compose files: node `willitmod-dev-bch_bchn_1`, RPC 28332, user `bch`,
+  ZMQ 28334 (was a guess at 8332/28332). Only the per-install RPC password has to be entered.
+- AxeBCH local pool is `willitmod-dev-bch_ckpool_1:3333` (was a wrong guess).
+
+## 0.1.0
 
 First Bitcoin Cash port, derived from the MIT-licensed Bitcoin Lab by benunskilled
 (https://github.com/benunskilled/bitcoin-lab). Not yet run against a live BCHN node.

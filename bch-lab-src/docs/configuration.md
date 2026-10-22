@@ -9,7 +9,7 @@ Open the **Node** card on the dashboard. It offers:
 | Choice | What it is |
 |---|---|
 | Bitcoin Cash Node (LoneStrike Labs app) | Umbrel app `sslabs-bitcoin-cash-node`. Login and ports are built in. |
-| AxeBCH (WillItMod) | Node + solo pool app from the WillItMod store. **Unverified**: see [bch-differences.md](bch-differences.md). |
+| AxeBCH (WillItMod) | Node + solo pool app from the WillItMod store. Host, ports and user are built in; you enter the per-install RPC password. See [bch-differences.md](bch-differences.md). |
 | Other BCHN-compatible node | Any node with Core-style JSON-RPC and ZMQ `hashblock`, on this Umbrel or elsewhere. |
 
 **Find installed nodes** looks for known node containers on this Umbrel, **Test** checks RPC and the ZMQ port without saving, and **Save & restart** stores the choice in `DATA_DIR/node-profile.json` (mode 0600; the RPC password is kept there and is never sent back to the browser). The four background services notice the new file within a few seconds and restart on it. Measurements are kept.

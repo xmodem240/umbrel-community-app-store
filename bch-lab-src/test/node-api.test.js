@@ -112,13 +112,13 @@ test('a blank password in a test reuses the saved one for the same host, and onl
 });
 
 test('POST /api/node validates, then saves and says the app is restarting', async () => {
-  const invalid = await api('/api/node', { method: 'POST', body: JSON.stringify({ profile: 'axebch', host: 'x_y_1' }) });
-  assert.equal(invalid.status, 422);
+  const invalid = await api('/api/node', { method: 'POST', body: JSON.stringify({ profile: 'axebch' }) });
+  assert.equal(invalid.status, 422, 'AxeBCH without its password is refused');
   assert.equal(fs.existsSync(path.join(tmpDir, 'node-profile.json')), false);
 
   const saved = await api('/api/node', {
     method: 'POST',
-    body: JSON.stringify({ profile: 'axebch', host: 'willitmod-dev-bch_bchn_1', rpcUser: 'axe', rpcPass: 'axe-secret' }),
+    body: JSON.stringify({ profile: 'axebch', rpcPass: 'axe-secret' }),
   });
   assert.equal(saved.status, 200);
   assert.equal(saved.body.restarting, true);
@@ -128,6 +128,9 @@ test('POST /api/node validates, then saves and says the app is restarting', asyn
   assert.equal(onDisk.profile, 'axebch');
   assert.equal(onDisk.host, 'willitmod-dev-bch_bchn_1');
   assert.equal(onDisk.rpcPass, 'axe-secret');
+  assert.equal(onDisk.rpcPort, 28332);
+  assert.equal(onDisk.rpcUser, 'bch');
+  assert.equal(onDisk.zmqPort, 28334);
 
   // The dashboard now reports the saved choice, while still showing what this
   // process started with (it restarts shortly after, in a real deployment).

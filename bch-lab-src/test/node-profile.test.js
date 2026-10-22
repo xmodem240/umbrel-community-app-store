@@ -62,13 +62,22 @@ test('the LoneStrike profile needs nothing typed and its login is built in', () 
   assert.equal(JSON.stringify(listed).includes(s.rpcPass), false);
 });
 
-test('AxeBCH and custom profiles refuse to save without a login', () => {
-  assert.throws(() => nodeProfile.normalise({ profile: 'axebch', host: 'x_y_1' }), /RPC user is required/);
-  assert.throws(() => nodeProfile.normalise({ profile: 'axebch', host: 'x_y_1', rpcUser: 'u' }), /RPC password is required/);
-  assert.throws(() => nodeProfile.normalise({ profile: 'axebch', rpcUser: 'u', rpcPass: 'p' }), /Host is required/);
-  const ok = nodeProfile.normalise({ profile: 'axebch', host: 'willitmod-dev-bch_bchn_1', rpcUser: 'u', rpcPass: 'p' });
-  assert.equal(ok.rpcPort, 8332);
-  assert.equal(ok.zmqPort, 28332);
+test('AxeBCH needs only the password: host, ports and user come from its own compose file', () => {
+  assert.throws(() => nodeProfile.normalise({ profile: 'axebch' }), /RPC password is required/);
+  const ok = nodeProfile.normalise({ profile: 'axebch', rpcPass: 'per-install-password' });
+  assert.equal(ok.host, 'willitmod-dev-bch_bchn_1');
+  assert.equal(ok.rpcPort, 28332);
+  assert.equal(ok.rpcUser, 'bch');
+  assert.equal(ok.zmqPort, 28334);
+  assert.equal(ok.zmqHost, 'willitmod-dev-bch_bchn_1');
+  assert.equal(ok.rpcPass, 'per-install-password');
+  assert.equal(nodeProfile.listProfiles().find((p) => p.id === 'axebch').defaults.rpcUser, 'bch');
+});
+
+test('a custom node refuses to save without host and login', () => {
+  assert.throws(() => nodeProfile.normalise({ profile: 'custom', host: 'x_y_1' }), /RPC user is required/);
+  assert.throws(() => nodeProfile.normalise({ profile: 'custom', host: 'x_y_1', rpcUser: 'u' }), /RPC password is required/);
+  assert.throws(() => nodeProfile.normalise({ profile: 'custom', rpcUser: 'u', rpcPass: 'p' }), /Host is required/);
 });
 
 test('bad input is rejected with a readable message', () => {
@@ -196,16 +205,16 @@ test('check() says what is wrong: bad password, wrong port, missing ZMQ, unknown
 
 test('detect() reports only the node apps whose container name resolves', async () => {
   nodeProfile._setLookup(async (host) => {
-    if (host === 'sslabs-bitcoin-cash-node_bitcoind_1' || host === 'willitmod-dev-bch_bitcoind_1') return { address: '10.21.0.3', family: 4 };
+    if (host === 'sslabs-bitcoin-cash-node_bitcoind_1' || host === 'willitmod-dev-bch_bchn_1') return { address: '10.21.0.3', family: 4 };
     throw Object.assign(new Error('nf'), { code: 'ENOTFOUND' });
   });
   const found = await nodeProfile.detect();
   assert.deepEqual(found.map((f) => [f.profile, f.host]), [
     ['lonestrike', 'sslabs-bitcoin-cash-node_bitcoind_1'],
-    ['axebch', 'willitmod-dev-bch_bitcoind_1'],
+    ['axebch', 'willitmod-dev-bch_bchn_1'],
   ]);
   assert.equal(found[0].verified, true);
-  assert.equal(found[1].verified, false, 'a guessed AxeBCH name is flagged as unverified');
+  assert.equal(found[1].verified, true);
   nodeProfile._setLookup(async () => { throw new Error('nf'); });
   assert.deepEqual(await nodeProfile.detect(), []);
   nodeProfile._setLookup(null);

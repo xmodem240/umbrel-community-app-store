@@ -5,7 +5,7 @@ Add this store in Umbrel: **App Store -> ... menu -> Community App Stores** -> `
 | App | What it does | Source |
 |---|---|---|
 | **Bitaxe Tuner** (`kyle-bitaxe-tuner`) | Finds safe overclock profiles for a Bitaxe | `src/` |
-| **Bitcoin Cash Lab** (`kyle-bch-lab`) | Ranks which peers deliver new Bitcoin Cash blocks first; optional pool latency race. Node software selectable on the dashboard: LoneStrike Labs BCHN app, WillItMod AxeBCH (unverified), or any BCHN-compatible node | `bch-lab-src/` |
+| **Bitcoin Cash Lab** (`kyle-bch-lab`) | Ranks which peers deliver new Bitcoin Cash blocks first; optional pool latency race. Node software selectable on the dashboard: LoneStrike Labs BCHN app, WillItMod AxeBCH (enter its RPC password), or any BCHN-compatible node | `bch-lab-src/` |
 
 Each app's image is built by its own workflow in `.github/workflows/` and published to
 `ghcr.io/xmodem240/`. A new package must be set to **public** in GitHub -> Packages once, or Umbrel

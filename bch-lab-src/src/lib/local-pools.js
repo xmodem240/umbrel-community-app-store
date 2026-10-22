@@ -26,14 +26,11 @@ const LOCAL_POOLS = [
   // LoneStrike Cash (sslabs-solostrike-cash): an asicseer-pool (ckpool) fork
   // listening on 3333 inside its container, published on host port 3335.
   { key: 'solostrike-cash', label: 'LoneStrike Cash', host: 'sslabs-solostrike-cash_pool_1', port: 3333 },
-  // AxeBCH (WillItMod store, app id willitmod-dev-bch in the dev store): a BCH
-  // node with a solo pool. UNVERIFIED. What is documented is that miners connect
-  // to stratum+tcp://<umbrel>:4567 and that the UI container is "app" (so
-  // willitmod-dev-bch_app_1 exists once it is installed). Which container serves
-  // stratum on 4567 inside the Docker network could not be read, so this assumes
-  // the same one. If a race against it never connects, add the pool by hand with
-  // the right container name (docs/bch-differences.md says how).
-  { key: 'axebch', label: 'AxeBCH', host: 'willitmod-dev-bch_app_1', port: 4567 },
+  // AxeBCH (WillItMod, app id willitmod-dev-bch): a BCH node with a solo ckpool.
+  // From its compose file (v0.9.27): service "ckpool", listening on 3333 inside
+  // its container and published on the host as 4567 - which is what a miner on
+  // the LAN uses. From in here only the container name and 3333 work.
+  { key: 'axebch', label: 'AxeBCH', host: 'willitmod-dev-bch_ckpool_1', port: 3333 },
 ];
 
 /**

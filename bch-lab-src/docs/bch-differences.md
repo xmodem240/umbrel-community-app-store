@@ -13,7 +13,7 @@ Treat those passages as the design intent, not as verified BCHN facts.
 | Network port table | main/test/testnet4/signet/regtest | mainnet 8333, testnet3 18333, testnet4 28333, scalenet 38333, chipnet 48333, regtest 18444 |
 | `getblocktemplate` | `{rules: ['segwit']}` | `{}` (BCH has no segwit) |
 | Default Stratum Race pools | 8 Bitcoin solo pools | 2Miners Solo BCH (EU, US), Kryptex BCH (EU, US) |
-| Local pool detection | GoBrrr, Bassin, Public Pool, DATUM, Pogolo | LoneStrike Cash (`sslabs-solostrike-cash`), AxeBCH (unverified) |
+| Local pool detection | GoBrrr, Bassin, Public Pool, DATUM, Pogolo | LoneStrike Cash (`sslabs-solostrike-cash`), AxeBCH (`willitmod-dev-bch_ckpool_1:3333`) |
 | Pool attribution list | bitcoin-data/mining-pools | empty (see MINING-POOLS.md) |
 | Database file | `bitcoinlab.db` | `bchlab.db` |
 
@@ -49,23 +49,30 @@ own docker-compose.yml, Oct 2026). If that app changes them, pick "Other" and en
 The app no longer declares a hard Umbrel dependency on any one node app, since either
 can serve. It will install without a node and show "not connected" until one is chosen.
 
-## AxeBCH (WillItMod): what is and is not known
+## AxeBCH (WillItMod)
 
-AxeBCH is WillItMod's Bitcoin Cash node + solo pool for Umbrel (app id `willitmod-dev-bch`
-in the dev store). From public pages: it runs Bitcoin Cash Node from the
-`mainnet/bitcoin-cash-node` image, miners connect to `stratum+tcp://<umbrel>:4567`, and
-its web UI container is `app` (container port 3000, host 21212).
+AxeBCH is WillItMod's Bitcoin Cash node + solo ckpool for Umbrel (app id
+`willitmod-dev-bch`, same in their main and dev stores). Its connection details were read
+from the compose file and config templates in WillItMod/umbrel-dev-community-store and
+WillItMod/AxeSuite (app v0.9.27, Oct 2026):
 
-**Not known**, because the compose file could not be read: the node container's name, its
-RPC user/password, whether it publishes ZMQ `hashblock` and on which port. So:
+| | Value |
+|---|---|
+| Node container | `willitmod-dev-bch_bchn_1` (their `bchn` service, image `ghcr.io/willitmod/bitcoin-cash-node:v29.0.0-wm3`) |
+| RPC | port **28332**, user **`bch`**, password = the install's `APP_PASSWORD` |
+| ZMQ `hashblock` | port **28334**, published on all interfaces |
+| Pool | container `willitmod-dev-bch_ckpool_1`, stratum 3333 inside (4567 on the host) |
+| RPC access | `rpcbind=0.0.0.0` with `rpcallowip` for the Umbrel apps subnet, so other apps may connect |
 
-- The "AxeBCH" choice has BCHN defaults (RPC 8332, ZMQ 28332) and no login. "Find installed
-  nodes" tries a few likely container names; a hit only proves a container of that name
-  exists. Press **Test**; it says whether the RPC login or the ZMQ port is the problem.
-- If ZMQ is not published by AxeBCH's node, the app cannot time blocks (it deliberately uses
-  nothing else). Test reports "nothing is listening on host:28332".
-- Find the real values with `docker ps` and by reading the app's `docker-compose.yml` under
-  `~/umbrel/app-data/willitmod-dev-bch/` on the Umbrel.
-- Local pool detection assumes the stratum port 4567 is served by `willitmod-dev-bch_app_1`.
-  If a Stratum Race against it never connects, add the pool by hand with the container
-  that really serves stratum.
+The **password is generated per install**, so the app cannot know it. Read it on the Umbrel:
+
+```
+grep rpcpassword ~/umbrel/app-data/willitmod-dev-bch/data/node/bitcoin.conf
+```
+
+Choose "AxeBCH (WillItMod)" in the Node card, paste the password, press Test, then Save.
+
+Not checked: that their patched BCHN (`-wm3`) returns the `getpeerinfo` fields listed above,
+and that this app's RPC and ZMQ connections coexist with theirs on a running node. Test
+and `scripts/check-node.js` answer the first. Note that AxeBCH2 (`willitmod-dev-axebch2`)
+is a different chain (Bitcoin Cash II); do not point this app at it.
