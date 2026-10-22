@@ -129,6 +129,11 @@ button.big{font-size:15px;padding:13px 16px;letter-spacing:.02em}
 
 /* ---- tables ---- */
 .recs{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.cooling{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;margin-top:14px;font-size:14px}
+.cooling .clabel{font-size:12px;color:var(--ink2);margin-right:2px}
+.cooling label{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:14px;color:var(--ink);cursor:pointer}
+.cooling input{width:auto;margin:0;accent-color:var(--accent)}
+#coolhint{max-width:760px}
 .rec{border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--page);display:flex;flex-direction:column}
 .rec h3{margin:0 0 2px;font-size:15px}
 .rec .big{font-size:22px;font-weight:700;margin:6px 0}
@@ -185,6 +190,12 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
       <button class="ghost" id="detect">Detect</button>
     </div>
     <div class="dev" id="dev"></div>
+    <div class="cooling" role="radiogroup" aria-label="Cooling">
+      <span class="clabel">Cooling</span>
+      <label><input type="radio" name="cooling" value="air" checked> Air (heatsink and fan)</label>
+      <label><input type="radio" name="cooling" value="water"> Water / liquid cooled</label>
+    </div>
+    <div class="hint" id="coolhint"></div>
 
     <details>
       <summary>Limits and tuning settings</summary>
@@ -448,7 +459,36 @@ function buildSettings(cfg) {
      <input id="f_${s.key}" type="number" step="any" min="${s.min}" max="${s.max}" value="${esc(cfg[s.key])}">
      <div class="hint">${esc(s.help)}</div></div>`).join("");
 }
-function readForm() { const o = { host: $("host").value.trim() }; for (const s of schema) o[s.key] = $("f_" + s.key).value; return o; }
+/* Cooling / board presets. Only fields still at the value the app last set are changed, so
+   anything typed by hand is kept. Core voltage is deliberately NOT raised for water: the
+   ~1300 mV 24/7 ceiling is about chip wear (electromigration), not temperature. */
+let board = "v5", applied = null;
+const PRESETS = {
+  air:   { v5: {}, v12: { min_input_mv: 11000, max_input_mv: 13500, max_power: 100 } },
+  water: { v5: { max_power: 35, max_freq: 900, warmup_s: 300 },
+           v12: { min_input_mv: 11000, max_input_mv: 13500, max_power: 160, max_freq: 900, warmup_s: 300 } },
+};
+const LABELS = { min_input_mv: ["min input", v => v / 1000 + " V"], max_input_mv: ["max input", v => v / 1000 + " V"],
+  max_power: ["max power", v => v + " W"], max_freq: ["max frequency", v => v + " MHz"], warmup_s: ["warm-up", v => v / 60 + " min"] };
+const coolingVal = () => (document.querySelector('input[name="cooling"]:checked') || {}).value || "air";
+function presetTarget() { const t = {}; for (const s of schema) t[s.key] = s.default; return Object.assign(t, PRESETS[coolingVal()][board]); }
+function applyPreset() {
+  if (!schema) return [];
+  const target = presetTarget(), changed = [];
+  if (!applied) { applied = {}; for (const s of schema) applied[s.key] = s.default; }
+  for (const k of Object.keys(LABELS)) {
+    const f = $("f_" + k); if (!f) continue;
+    if (Number(f.value) === Number(applied[k]) && Number(f.value) !== Number(target[k])) { f.value = target[k]; changed.push(`${LABELS[k][0]} ${LABELS[k][1](target[k])}`); }
+    applied[k] = target[k];
+  }
+  return changed;
+}
+function coolHint() {
+  $("coolhint").textContent = coolingVal() === "water"
+    ? "Water: higher frequency ceiling and power limit, longer warm-up so the loop's temperature settles. Core voltage stays capped (about 1,300 mV is the 24/7 limit for chip wear, whatever the cooling). Water blocks usually don't cool the voltage regulator; give it airflow or heatsinks."
+    : "";
+}
+function readForm() { const o = { host: $("host").value.trim(), cooling: coolingVal() }; for (const s of schema) o[s.key] = $("f_" + s.key).value; return o; }
 function devInfo(d) {
   if (!d) { $("dev").innerHTML = ""; return; }
   $("dev").innerHTML = `<b>${esc(d.hostname || "Miner")}</b> · ${esc(d.ASICModel || "")} ${esc(d.deviceModel || "")} · firmware ${esc(d.version || "?")} · currently <b>${esc(d.frequency)} MHz / ${esc(d.coreVoltage)} mV</b>`;
@@ -466,7 +506,13 @@ function render(s) {
   last = s;
   if (s.version) $("ver").textContent = "v" + s.version;
   const sw = $("storagewarn"); sw.hidden = !s.storage_error; sw.textContent = s.storage_error || "";
-  if (!schema) { schema = s.schema; buildSettings(s.config); if (s.config.host) $("host").value = s.config.host; }
+  if (!schema) {
+    schema = s.schema; buildSettings(s.config); if (s.config.host) $("host").value = s.config.host;
+    const r = document.querySelector(`input[name="cooling"][value="${s.config.cooling === "water" ? "water" : "air"}"]`); if (r) r.checked = true;
+    if (s.device && s.device.voltage > 9000) board = "v12";
+    applied = presetTarget();   // the saved config came from these presets (or from hand edits, which stay)
+    coolHint();
+  }
   const run = s.run, active = s.active, c = s.config, t = s.telemetry;
   if (!$("host").matches(":focus") && !$("host").value && c.host) $("host").value = c.host;
   if (s.device && !$("dev").innerHTML) devInfo(s.device);
@@ -485,7 +531,7 @@ function render(s) {
     tiles += `<div class="stat"><span>Best stable so far</span><b>${b ? fmt(b.hash) + " GH/s" : "—"}</b><small>${b ? esc(b.freq) + " MHz / " + esc(b.volt) + " mV" : "none yet"}</small></div>`;
     if (active && t) {
       tiles += `<div class="stat"><span>Hashrate now</span><b>${fmt(t.hash)} GH/s</b><small>${t.expected ? fmt(100 * t.hash / t.expected, 1) + "% of expected" : ""}</small></div>`;
-      tiles += meterTile("ASIC temp", t.temp, c.max_temp, "°C", 1) + meterTile("VR temp", t.vr, c.max_vr_temp, "°C", 1) + meterTile("Power", t.power, c.max_power, "W", 2);
+      tiles += meterTile("ASIC temp", t.temp, c.max_temp, "°C", 1) + (t.vr == null ? `<div class="stat meterstat warn"><span>VR temp</span><b>not reported</b><small>This board doesn't report VR temperature, so the VR limit can't protect it.${c.cooling === "water" ? " Water blocks usually don't cool the VR: keep air on it." : ""}</small></div>` : meterTile("VR temp", t.vr, c.max_vr_temp, "°C", 1)) + meterTile("Power", t.power, c.max_power, "W", 2);
       tiles += `<div class="stat"><span>Input voltage</span><b>${t.vin ? fmt(t.vin / 1000, 2) + " V" : "—"}</b><small>min ${fmt(c.min_input_mv / 1000, 1)} V</small></div>`;
       tiles += `<div class="stat"><span>ASIC errors</span><b>${t.err == null ? "—" : fmt(t.err, 2) + " %"}</b><small>max ${c.max_error_pct} %</small></div>`;
     }
@@ -570,21 +616,20 @@ setInterval(tick, 1000);
 $("detect").onclick = async () => {
   try {
     const d = await api("/api/detect", { host: $("host").value }); devInfo(d);
-    // 12 V boards (e.g. Naja Duo, Gamma Turbo): the 5 V defaults don't fit. Only replace values
-    // still at their 5 V defaults, so anything you typed yourself is kept.
-    const changed = [];
-    const setIf = (k, from, to, label) => { const f = $("f_" + k); if (f && Number(f.value) === from) { f.value = to; changed.push(label); } };
-    if (d.voltage && d.voltage > 9000) {
-      setIf("min_input_mv", 4500, 11000, "min input 11 V");
-      setIf("max_input_mv", 14000, 13500, "max input 13.5 V");
-      setIf("max_power", 30, 100, "max power 100 W");
-    }
-    toast(changed.length ? `12 V board found. Limits set: ${changed.join(", ")}. Check them under Limits.` : "Miner found");
+    board = d.voltage && d.voltage > 9000 ? "v12" : "v5";
+    const changed = applyPreset();
+    const pw = Number($("f_max_power").value);
+    const warn = board === "v5" && pw > 35 ? ` Warning: max power is ${pw} W, but a 5 V barrel-jack board shouldn't run above about 35 W.` : "";
+    toast((board === "v12" ? "12 V board found." : "Miner found.") + (changed.length ? ` Limits set: ${changed.join(", ")}. Check them under Limits.` : "") + warn);
   } catch (e) { toast(e.message); }
 };
+document.querySelectorAll('input[name="cooling"]').forEach(r => r.addEventListener("change", () => {
+  const changed = applyPreset(); coolHint();
+  if (changed.length) toast(`Limits updated for ${coolingVal()} cooling: ${changed.join(", ")}.`);
+}));
 $("start").onclick = async () => {
   const f = readForm();
-  if (!confirm(`Start tuning ${f.host || "(no host)"}?\n\nThe miner will be restarted many times and run hotter than normal, up to ${f.max_temp} °C / ${f.max_power} W. Original settings are restored afterwards. You can hit Emergency stop at any time.`)) return;
+  if (!confirm(`Start tuning ${f.host || "(no host)"}?\n\nThe miner will be restarted many times and run hotter than normal (cooling: ${f.cooling}), up to ${f.max_temp} °C / ${f.max_power} W and ${f.max_voltage} mV. Original settings are restored afterwards. You can hit Emergency stop at any time.`)) return;
   try { await api("/api/start", f); toast("Started"); H.samples = []; await poll.once(); } catch (e) { toast(e.message); }
 };
 poll.once = async () => { const s = await api("/api/state"); fetchedAt = performance.now(); offset = s.server_time * 1000 - Date.now(); render(s); };

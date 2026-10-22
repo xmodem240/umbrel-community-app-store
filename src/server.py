@@ -24,7 +24,7 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
@@ -77,6 +77,7 @@ SCHEMA = [
 SCHEMA_BY_KEY = {s["key"]: s for s in SCHEMA}
 DEFAULTS = {s["key"]: s["default"] for s in SCHEMA}
 DEFAULTS["host"] = ""
+DEFAULTS["cooling"] = "air"
 
 if TEST_MODE:  # allow short timings in the simulator
     SCHEMA_BY_KEY["warmup_s"]["min"] = 0
@@ -102,6 +103,11 @@ def validate_config(raw):
     for k, v in raw.items():
         if k == "host":
             cfg["host"] = clean_host(v)
+            continue
+        if k == "cooling":
+            if v not in ("air", "water"):
+                raise ValueError("Cooling must be air or water")
+            cfg["cooling"] = v
             continue
         s = SCHEMA_BY_KEY.get(k)
         if not s:
