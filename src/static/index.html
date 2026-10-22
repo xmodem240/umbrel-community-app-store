@@ -6,63 +6,145 @@
 <title>Bitaxe Tuner</title>
 <style>
 :root{
-  --bg:#0f1115;--card:#171a21;--line:#262b36;--text:#e8eaf0;--mute:#8b93a5;
-  --accent:#f7931a;--ok:#3ecf8e;--bad:#ff5d5d;--warn:#f5c04a;--input:#0f1115;
+  color-scheme:light;
+  --page:#f9f9f7;--card:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;
+  --grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,.10);--input:#fff;--band:rgba(11,11,11,.035);
+  --accent:#f7931a;--ok:#0ca30c;--okt:#006300;--warn:#fab219;--crit:#d03b3b;
+  --s-hash:#2a78d6;--s-asic:#eb6834;--s-vr:#1baf7a;--s-pow:#6250d6;
 }
-@media (prefers-color-scheme:light){:root{
-  --bg:#f5f6f8;--card:#fff;--line:#e2e5ec;--text:#15181f;--mute:#667085;--input:#fff;--accent:#d97706;
+@media (prefers-color-scheme:dark){:root{
+  color-scheme:dark;
+  --page:#0d0d0d;--card:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#898781;
+  --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);--input:#121211;--band:rgba(255,255,255,.04);
+  --okt:#0ca30c;
+  --s-hash:#3987e5;--s-asic:#d95926;--s-vr:#199e70;--s-pow:#9085e9;
 }}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:1000px;margin:0 auto;padding:20px 16px 60px}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1040px;margin:0 auto;padding:16px 16px 60px}
 h1{font-size:22px;margin:4px 0 2px}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 12px;font-weight:600}
-.sub{color:var(--mute);margin:0 0 18px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
-.warn{border-color:color-mix(in srgb,var(--warn) 50%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--card));font-size:13.5px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2);margin:0 0 12px;font-weight:600}
+.sub{color:var(--ink2);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+.warn-card{border-color:color-mix(in srgb,var(--warn) 55%,var(--border));background:color-mix(in srgb,var(--warn) 9%,var(--card));font-size:13.5px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
-label{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
-input{background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit;width:100%}
-input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+label{display:block;font-size:12px;color:var(--ink2);margin-bottom:4px}
+input{background:var(--input);color:var(--ink);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font:inherit;width:100%}
+input:focus-visible,button:focus-visible,summary:focus-visible,svg:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 button{background:var(--accent);color:#111;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
-button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
-button.danger{background:var(--bad);color:#fff}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--border)}
+button.danger{background:var(--crit);color:#fff}
 button:disabled{opacity:.45;cursor:not-allowed}
 .grow{flex:1;min-width:200px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
-.hint{font-size:11.5px;color:var(--mute);margin-top:3px}
-details summary{cursor:pointer;color:var(--mute);font-size:13px;margin:12px 0}
-.dev{font-size:13px;color:var(--mute);margin-top:10px}
-.dev b{color:var(--text);font-weight:600}
-.status{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:var(--line)}
-.pill.running,.pill.stopping{background:color-mix(in srgb,var(--accent) 25%,transparent);color:var(--accent)}
-.pill.done{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
-.pill.error,.pill.interrupted{background:color-mix(in srgb,var(--bad) 22%,transparent);color:var(--bad)}
-.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin:12px 0 6px}
-.bar>i{display:block;height:100%;background:var(--accent);transition:width .6s}
-.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-top:12px}
-.stat{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-.stat span{display:block;font-size:11px;color:var(--mute)}
-.stat b{font-size:17px}
+.hint{font-size:11.5px;color:var(--muted);margin-top:3px}
+details summary{cursor:pointer;color:var(--ink2);font-size:13px;margin:12px 0}
+.dev{font-size:13px;color:var(--ink2);margin-top:10px}.dev b{color:var(--ink);font-weight:600}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:var(--grid);color:var(--ink2)}
+.pill.running,.pill.stopping{background:color-mix(in srgb,var(--accent) 25%,transparent);color:var(--ink)}
+.pill.done{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--okt)}
+.pill.error,.pill.interrupted{background:color-mix(in srgb,var(--crit) 22%,transparent);color:var(--crit)}
+
+/* ---- live run bar ---- */
+.runbar{position:sticky;top:8px;z-index:20;display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;
+  background:var(--card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:12px;
+  padding:12px 14px;margin-bottom:16px;box-shadow:0 6px 24px rgba(0,0,0,.18)}
+.runbar[hidden]{display:none}
+.rb-main{flex:1;min-width:260px}
+.rb-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--ink2)}
+.rb-title{font-size:16px;font-weight:700;margin:4px 0 8px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none;box-shadow:0 0 0 2px var(--card)}
+.dot.ok{background:var(--ok);animation:pulse 1.6s ease-out infinite}
+.dot.wait{background:var(--warn);animation:pulse 1.6s ease-out infinite}
+.dot.slow{background:var(--warn)}
+.dot.bad{background:var(--crit)}
+@keyframes pulse{0%{box-shadow:0 0 0 2px var(--card),0 0 0 2px color-mix(in srgb,currentColor 0%,transparent)}
+  70%{box-shadow:0 0 0 2px var(--card),0 0 0 9px transparent}100%{box-shadow:0 0 0 2px var(--card),0 0 0 2px transparent}}
+.dot.ok{color:var(--ok)}.dot.wait{color:var(--warn)}
+.steps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.step{font-size:12px;padding:2px 10px;border-radius:99px;border:1px solid var(--border);color:var(--muted)}
+.step.done{color:var(--okt);border-color:color-mix(in srgb,var(--ok) 45%,var(--border))}
+.step.on{color:var(--ink);background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:var(--accent);font-weight:600}
+.bar{height:10px;background:var(--grid);border-radius:99px;overflow:hidden;position:relative}
+.bar>i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .9s linear}
+.bar.ind>i{width:35%!important;position:absolute;animation:slide 1.4s ease-in-out infinite}
+@keyframes slide{0%{left:-35%}100%{left:100%}}
+.rb-sub{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin-top:6px}
+.rb-sub b{color:var(--ink);font-weight:600}
+.rb-actions{display:flex;flex-direction:column;gap:8px;justify-content:center;min-width:190px}
+.rb-actions button{width:100%}
+button.big{font-size:15px;padding:13px 16px;letter-spacing:.02em}
+@media (prefers-reduced-motion:reduce){.dot.ok,.dot.wait,.bar.ind>i{animation:none}.bar>i{transition:none}}
+
+/* ---- tiles ---- */
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px}
+.stat{background:var(--page);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+.stat span{display:block;font-size:11.5px;color:var(--ink2)}
+.stat b{font-size:18px}
+.stat small{display:block;font-size:11px;color:var(--muted);margin-top:3px}
+.meter{height:6px;border-radius:99px;margin-top:6px;overflow:hidden;background:color-mix(in srgb,var(--s-hash) 20%,var(--card))}
+.meter i{display:block;height:100%;background:var(--s-hash);border-radius:99px}
+.meterstat.warn .meter{background:color-mix(in srgb,var(--warn) 22%,var(--card))}.meterstat.warn .meter i{background:var(--warn)}
+.meterstat.crit .meter{background:color-mix(in srgb,var(--crit) 22%,var(--card))}.meterstat.crit .meter i{background:var(--crit)}
+.meterstat.warn small,.meterstat.crit small{color:var(--ink);font-weight:600}
+.msg{margin-top:8px;font-size:13.5px}
+
+/* ---- charts ---- */
+.chead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.chead h2{margin:0}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;color:var(--ink2);border:0;border-radius:0;padding:6px 12px;font-size:13px;font-weight:500}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button.on{background:var(--grid);color:var(--ink);font-weight:700}
+.chart{margin-top:14px}
+.ch-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ch-title{font-size:13px;font-weight:600;color:var(--ink2)}
+.ch-now{font-size:20px;font-weight:700}.ch-now small{font-size:12px;color:var(--muted);font-weight:500;margin-left:4px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--ink2);margin:2px 0}
+.legend i{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
+.plot{position:relative}
+.plot svg{display:block;width:100%;height:auto;overflow:visible;touch-action:pan-y}
+.plot text{font:11.5px system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--muted)}
+.plot .tick-y{text-anchor:end}.plot .tick-x{text-anchor:middle}
+.plot .lbl{fill:var(--ink2)}.plot .lblv{fill:var(--ink);font-weight:600}
+.plot .grid{stroke:var(--grid);stroke-width:1;fill:none}
+.plot .axis{stroke:var(--axis);stroke-width:1}
+.plot .band{fill:var(--band)}
+.plot .limit{stroke:var(--crit);stroke-width:1;fill:none}
+.plot .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.s-hash{stroke:var(--s-hash);fill:var(--s-hash)}.s-asic{stroke:var(--s-asic);fill:var(--s-asic)}
+.s-vr{stroke:var(--s-vr);fill:var(--s-vr)}.s-pow{stroke:var(--s-pow);fill:var(--s-pow)}
+.plot .ln.s-hash,.plot .ln.s-asic,.plot .ln.s-vr,.plot .ln.s-pow{fill:none}
+.plot .dotm{stroke:var(--card);stroke-width:2}
+.plot .cross{stroke:var(--ink2);stroke-width:1}
+.tip{position:absolute;top:6px;pointer-events:none;background:var(--card);border:1px solid var(--border);border-radius:8px;
+  padding:7px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.2);white-space:nowrap;z-index:3}
+.tip[hidden]{display:none}
+.tip .th{color:var(--ink2);margin-bottom:3px}
+.tip .tr{display:flex;align-items:center;gap:6px}
+.tip .tr i{display:inline-block;width:12px;border-top:2px solid}
+.tip .tr b{font-size:13.5px}.tip .tr span{color:var(--ink2)}
+.nodata{fill:var(--muted)}
+
+/* ---- tables ---- */
 .recs{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
-.rec{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--bg)}
+.rec{border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--page);display:flex;flex-direction:column}
 .rec h3{margin:0 0 2px;font-size:15px}
 .rec .big{font-size:22px;font-weight:700;margin:6px 0}
-.rec p{margin:0 0 10px;color:var(--mute);font-size:12.5px}
+.rec p{margin:0 0 10px;color:var(--ink2);font-size:12.5px}
 .rec dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:0 0 12px;font-size:13px}
-.rec dt{color:var(--mute)}.rec dd{margin:0;text-align:right}
-.rec button{width:100%}
+.rec dt{color:var(--ink2)}.rec dd{margin:0;text-align:right}
+.rec button{width:100%;margin-top:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
-th:first-child,td:first-child,th:nth-child(3),td:nth-child(3){text-align:left}
-th{color:var(--mute);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+#tbl th:nth-child(3),#tbl td:nth-child(3){text-align:left}
+th{color:var(--ink2);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
 .tw{overflow-x:auto}
-.s-stable{color:var(--ok)}.s-unstable{color:var(--bad)}.s-thermal,.s-power,.s-input{color:var(--warn)}
-pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--mute);white-space:pre-wrap}
-.msg{margin-top:8px;font-size:13px}
-.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--card);border:1px solid var(--line);padding:10px 16px;border-radius:10px;box-shadow:0 6px 24px #0006;display:none;z-index:5}
-.empty{color:var(--mute);font-size:13px}
+.s-stable-t{color:var(--okt)}.s-unstable-t{color:var(--crit)}.s-thermal-t,.s-power-t,.s-input-t{color:var(--ink);font-weight:600}
+pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--ink2);white-space:pre-wrap}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);padding:10px 16px;border-radius:10px;box-shadow:0 6px 24px #0006;display:none;z-index:30;max-width:90vw}
+.empty{color:var(--muted);font-size:13px}
 </style>
 </head>
 <body>
@@ -70,10 +152,27 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
   <h1>Bitaxe Tuner</h1>
   <p class="sub">Steps frequency and core voltage up in small increments, tests each point, and tells you which settings are actually stable.</p>
 
-  <div class="card warn">
+  <div class="card warn-card">
     <b>Overclocking can damage hardware.</b> Every point is held to hard limits (ASIC temp, VR temp, power, input voltage) and the miner's original settings are restored when a run ends, is stopped, or this app restarts.
-    Set the limits below to match <em>your</em> board and power supply. Make sure your fan and cooling are working before you start. A run takes a while; leave the miner alone while it works.
+    Set the limits below to match <em>your</em> board and power supply, and make sure your fan and cooling work before you start.
+    The red <b>Emergency stop</b> button appears at the top while a run is active.
   </div>
+
+  <!-- live run bar -->
+  <section class="runbar" id="runbar" hidden aria-live="polite">
+    <div class="rb-main">
+      <div class="rb-top"><span class="dot" id="dot"></span><span id="live"></span></div>
+      <div class="rb-title" id="rbtitle"></div>
+      <div class="steps" id="steps"></div>
+      <div class="bar" id="barw"><i id="bar"></i></div>
+      <div class="rb-sub"><span id="rbmsg"></span><span id="countdown"></span></div>
+      <div class="rb-sub"><span id="rbinfo"></span></div>
+    </div>
+    <div class="rb-actions">
+      <button class="danger big" id="emerg" title="Abort immediately and put the miner back on its original settings">■ EMERGENCY STOP</button>
+      <button class="ghost" id="stop">Stop run</button>
+    </div>
+  </section>
 
   <div class="card">
     <h2>Miner</h2>
@@ -91,7 +190,7 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
 
     <div class="row" style="margin-top:14px">
       <button id="start">Start tuning</button>
-      <button class="danger" id="stop" style="display:none">Stop &amp; restore</button>
+      <button class="ghost" id="restore" style="display:none"></button>
       <button class="ghost" id="reset">Clear results</button>
       <a href="/api/export" style="margin-left:auto"><button class="ghost" type="button">Export JSON</button></a>
     </div>
@@ -99,10 +198,26 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
 
   <div class="card" id="runcard" style="display:none">
     <h2>Run</h2>
-    <div class="status"><span class="pill" id="pill"></span><span id="phase"></span></div>
-    <div class="bar" id="barw" style="display:none"><i id="bar"></i></div>
+    <div><span class="pill" id="pill"></span></div>
     <div class="msg" id="msg"></div>
     <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="card" id="chartcard">
+    <div class="chead">
+      <h2>Live graphs</h2>
+      <div class="seg" id="range" role="group" aria-label="Time range">
+        <button data-r="10m">10 min</button><button data-r="1h">1 hour</button><button data-r="all" class="on">Whole run</button>
+      </div>
+    </div>
+    <div class="empty" id="nochart">Graphs appear once a run starts.</div>
+    <div class="chart" id="ch_hash"></div>
+    <div class="chart" id="ch_temp"></div>
+    <div class="chart" id="ch_pow"></div>
+    <details id="samplesbox" style="display:none">
+      <summary>Show recent samples as a table</summary>
+      <div class="tw"><table id="samples"><thead><tr><th>Time</th><th>MHz</th><th>mV</th><th>GH/s</th><th>ASIC °C</th><th>VR °C</th><th>W</th><th>Err %</th></tr></thead><tbody></tbody></table></div>
+    </details>
   </div>
 
   <div class="card" id="reccard" style="display:none">
@@ -121,15 +236,20 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
 
   <div class="card"><h2>Log</h2><pre id="log"></pre></div>
 </main>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status"></div>
 
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const fmt = (v, d = 1) => v == null ? "—" : Number(v).toFixed(d);
-let schema = null, last = null, editing = false;
+const fmt = (v, d = 1) => (v == null || isNaN(v)) ? "—" : Number(v).toFixed(d);
+const mmss = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
+const clock = (t, secs) => new Date(t * 1000).toLocaleTimeString([], secs ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } : { hour: "2-digit", minute: "2-digit" });
 
-function toast(t) { const e = $("toast"); e.textContent = t; e.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = "none", 4500); }
+let schema = null, last = null, fetchedAt = 0, offset = 0, wasActive = false, range = "all";
+const H = { epoch: null, samples: [] };
+
+function toast(t) { const e = $("toast"); e.textContent = t; e.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = "none", 5000); }
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
@@ -137,106 +257,342 @@ async function api(path, body) {
   return j;
 }
 
+/* ------------------------------------------------------------------ charts */
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs || {}) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+function niceTicks(lo, hi, n) {
+  const raw = (hi - lo) / n || 1, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+  return { ticks: out, step };
+}
+const TSTEPS = [10, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600];
+const RANGES = { "10m": 600, "1h": 3600, all: Infinity };
+
+const CHARTS = [
+  { id: "ch_hash", title: "Hashrate", unit: "GH/s", series: [{ k: "hash", label: "Hashrate", cls: "s-hash", dec: 1 }], limits: () => [], mr: 74 },
+  { id: "ch_temp", title: "Temperature", unit: "°C", series: [{ k: "temp", label: "ASIC", cls: "s-asic", dec: 1 }, { k: "vr", label: "VR", cls: "s-vr", dec: 1 }],
+    limits: c => [{ v: c.max_temp, label: "ASIC limit" }, { v: c.max_vr_temp, label: "VR limit" }], mr: 104 },
+  { id: "ch_pow", title: "Power", unit: "W", series: [{ k: "power", label: "Power", cls: "s-pow", dec: 2 }], limits: c => [{ v: c.max_power, label: "limit" }], mr: 82 },
+];
+
+class Chart {
+  constructor(cfg) {
+    this.cfg = cfg; this.root = $(cfg.id); this.data = []; this.geo = null;
+    const head = document.createElement("div"); head.className = "ch-head";
+    this.title = document.createElement("span"); this.title.className = "ch-title"; this.title.textContent = cfg.title;
+    this.now = document.createElement("span"); this.now.className = "ch-now";
+    head.append(this.title, this.now); this.root.appendChild(head);
+    if (cfg.series.length > 1) {   // legend whenever there are 2+ series
+      const lg = document.createElement("div"); lg.className = "legend";
+      for (const s of cfg.series) { const sp = document.createElement("span"); const i = document.createElement("i"); i.className = s.cls; i.style.borderColor = `var(--${s.cls})`; sp.append(i, s.label); lg.appendChild(sp); }
+      this.root.appendChild(lg);
+    }
+    this.plot = document.createElement("div"); this.plot.className = "plot";
+    this.svg = el("svg", { tabindex: "0", role: "img" });
+    this.tip = document.createElement("div"); this.tip.className = "tip"; this.tip.hidden = true;
+    this.plot.append(this.svg, this.tip); this.root.appendChild(this.plot);
+    this.svg.addEventListener("pointermove", e => this.pointer(e));
+    this.svg.addEventListener("pointerdown", e => this.pointer(e));
+    this.svg.addEventListener("pointerleave", () => hoverAll(null));
+    this.svg.addEventListener("keydown", e => this.key(e));
+    new ResizeObserver(() => { if (this.lastArgs) this.render(...this.lastArgs); }).observe(this.plot);
+  }
+  render(all, results, config) {
+    this.lastArgs = [all, results, config];
+    const cfg = this.cfg, W = Math.max(280, Math.floor(this.plot.clientWidth)), Ht = 210;
+    const m = { l: 46, r: cfg.mr, t: 22, b: 24 };
+    const tmax = all.length ? all[all.length - 1].t : 0, span = RANGES[range];
+    const data = span === Infinity ? all : all.filter(d => d.t >= tmax - span);
+    this.data = data;
+    this.svg.setAttribute("viewBox", `0 0 ${W} ${Ht}`);
+    while (this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
+    const lastRow = all[all.length - 1];
+    this.now.textContent = "";
+    if (lastRow) { const v = lastRow[cfg.series[0].k]; const parts = cfg.series.map(s => lastRow[s.k] == null ? null : `${cfg.series.length > 1 ? s.label + " " : ""}${fmt(lastRow[s.k], s.dec)}`).filter(Boolean);
+      this.now.textContent = parts.join(" · "); const u = document.createElement("small"); u.textContent = cfg.unit; this.now.appendChild(u);
+      this.svg.setAttribute("aria-label", `${cfg.title} over time. Latest ${parts.join(", ")} ${cfg.unit}.`); }
+    if (data.length < 2) { const t = el("text", { x: W / 2, y: Ht / 2, "text-anchor": "middle", class: "nodata" }, this.svg); t.textContent = "Waiting for data…"; this.geo = null; return; }
+
+    const t0 = data[0].t, t1 = data[data.length - 1].t, pw = W - m.l - m.r, ph = Ht - m.t - m.b;
+    const x = t => m.l + (t - t0) / ((t1 - t0) || 1) * pw;
+    // y domain from data (+ limits that are near the data, so headroom is visible)
+    let lo = Infinity, hi = -Infinity;
+    for (const d of data) for (const s of cfg.series) { const v = d[s.k]; if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
+    if (!isFinite(lo)) { this.geo = null; return; }
+    const limits = cfg.limits(config).filter(l => l.v != null && l.v <= hi * 1.5 && l.v >= lo * 0.5);
+    for (const l of limits) hi = Math.max(hi, l.v);
+    const pad = Math.max((hi - lo) * 0.12, Math.abs(hi) * 0.02, 0.5); lo -= pad; hi += pad;
+    const y = v => m.t + (1 - (v - lo) / (hi - lo)) * ph;
+    const { ticks, step } = niceTicks(lo, hi, 4);
+    const yd = step < 1 ? 1 : 0;
+
+    // segments = one per (freq, volt) point
+    const segs = []; let cur = null;
+    for (const d of data) { if (!cur || cur.freq !== d.freq || cur.volt !== d.volt) { cur = { freq: d.freq, volt: d.volt, pts: [] }; segs.push(cur); } cur.pts.push(d); }
+    segs.forEach((sg, i) => {
+      const xa = i === 0 ? m.l : x(sg.pts[0].t), xb = i + 1 < segs.length ? x(segs[i + 1].pts[0].t) : m.l + pw;
+      if (i % 2 === 1) el("rect", { class: "band", x: xa, y: m.t, width: Math.max(0, xb - xa), height: ph }, this.svg);
+      if (xb - xa > 38) {
+        const res = [...results].reverse().find(r => r.freq === sg.freq && r.volt === sg.volt);
+        const mark = res ? (res.status === "stable" ? " ✓" : " ✗") : "";
+        const tx = el("text", { x: (xa + xb) / 2, y: m.t - 7, "text-anchor": "middle", class: "lbl" }, this.svg); tx.textContent = `${sg.freq}${mark}`;
+      }
+    });
+    for (const tv of ticks) {
+      el("line", { class: "grid", x1: m.l, x2: m.l + pw, y1: y(tv), y2: y(tv) }, this.svg);
+      const tx = el("text", { class: "tick-y", x: m.l - 8, y: y(tv) + 4 }, this.svg); tx.textContent = tv.toFixed(yd);
+    }
+    el("line", { class: "axis", x1: m.l, x2: m.l + pw, y1: m.t + ph, y2: m.t + ph }, this.svg);
+    const maxTicks = Math.max(2, Math.min(6, Math.floor(pw / 95)));   // ~95px per time label
+    const tspan = t1 - t0, ts = TSTEPS.find(s => tspan / s <= maxTicks) || TSTEPS[TSTEPS.length - 1];
+    for (let tv = Math.ceil(t0 / ts) * ts; tv <= t1; tv += ts) {
+      const tx = el("text", { class: "tick-x", x: x(tv), y: Ht - 6 }, this.svg); tx.textContent = clock(tv, ts < 60);
+    }
+    for (const l of limits) {
+      el("line", { class: "limit", x1: m.l, x2: m.l + pw, y1: y(l.v), y2: y(l.v) }, this.svg);
+      const tx = el("text", { x: m.l + pw + 6, y: y(l.v) + 4, class: "lbl" }, this.svg); tx.textContent = `${l.label} ${l.v}`;
+    }
+    // lines (broken between points, since the miner reboots there)
+    const ends = [];
+    for (const s of cfg.series) {
+      for (const sg of segs) {
+        let d = "", pen = false;
+        for (const p of sg.pts) { const v = p[s.k]; if (v == null) { pen = false; continue; } d += `${pen ? "L" : "M"}${x(p.t).toFixed(1)} ${y(v).toFixed(1)}`; pen = true; }
+        if (d) el("path", { class: `ln ${s.cls}`, d }, this.svg);
+      }
+      const lp = [...data].reverse().find(p => p[s.k] != null);
+      if (lp) { el("circle", { class: `dotm ${s.cls}`, cx: x(lp.t), cy: y(lp[s.k]), r: 4 }, this.svg); ends.push({ s, y: y(lp[s.k]), v: lp[s.k] }); }
+    }
+    // direct end labels only when they don't collide (legend + tooltip carry identity otherwise)
+    const okLabels = ends.every((a, i) => ends.every((b, j) => i === j || Math.abs(a.y - b.y) > 14));
+    if (okLabels) for (const e of ends) {
+      const tx = el("text", { x: m.l + pw + 10, y: e.y + 4, class: "lblv" }, this.svg);
+      tx.textContent = `${cfg.series.length > 1 ? e.s.label + " " : ""}${fmt(e.v, e.s.dec)}`;
+    }
+    // hover overlay
+    this.cross = el("line", { class: "cross", y1: m.t, y2: m.t + ph, visibility: "hidden" }, this.svg);
+    this.hdots = cfg.series.map(s => el("circle", { class: `dotm ${s.cls}`, r: 4.5, visibility: "hidden" }, this.svg));
+    this.geo = { W, m, x, y, t0, t1, pw };
+    if (hoverT != null) this.setHover(hoverT);
+  }
+  nearest(t) {
+    const d = this.data; let a = 0, b = d.length - 1;
+    while (b - a > 1) { const mid = (a + b) >> 1; if (d[mid].t < t) a = mid; else b = mid; }
+    return Math.abs(d[a].t - t) <= Math.abs(d[b].t - t) ? a : b;
+  }
+  pointer(e) {
+    if (!this.geo) return;
+    const r = this.svg.getBoundingClientRect(), g = this.geo, px = (e.clientX - r.left) * (g.W / r.width);
+    const t = g.t0 + (px - g.m.l) / g.pw * (g.t1 - g.t0);
+    hoverAll(this.data[this.nearest(Math.min(g.t1, Math.max(g.t0, t)))].t);
+  }
+  key(e) {
+    if (!this.geo || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    e.preventDefault();
+    const i = hoverT == null ? this.data.length - 1 : this.nearest(hoverT);
+    hoverAll(this.data[Math.max(0, Math.min(this.data.length - 1, i + (e.key === "ArrowLeft" ? -1 : 1)))].t);
+  }
+  setHover(t) {
+    if (!this.geo || !this.data.length) return;
+    if (t == null) { this.cross.setAttribute("visibility", "hidden"); this.hdots.forEach(d => d.setAttribute("visibility", "hidden")); this.tip.hidden = true; return; }
+    const d = this.data[this.nearest(t)], g = this.geo, cx = g.x(d.t);
+    this.cross.setAttribute("x1", cx); this.cross.setAttribute("x2", cx); this.cross.setAttribute("visibility", "visible");
+    this.cfg.series.forEach((s, i) => { const dot = this.hdots[i];
+      if (d[s.k] == null) dot.setAttribute("visibility", "hidden"); else { dot.setAttribute("cx", cx); dot.setAttribute("cy", g.y(d[s.k])); dot.setAttribute("visibility", "visible"); } });
+    const tip = this.tip; tip.textContent = "";
+    const th = document.createElement("div"); th.className = "th";
+    th.textContent = `${clock(d.t, true)} · ${d.freq} MHz / ${d.volt} mV`; tip.appendChild(th);
+    for (const s of this.cfg.series) {
+      if (d[s.k] == null) continue;
+      const row = document.createElement("div"); row.className = "tr";
+      const key = document.createElement("i"); key.style.borderColor = `var(--${s.cls})`;
+      const val = document.createElement("b"); val.textContent = `${fmt(d[s.k], s.dec)} ${this.cfg.unit}`;
+      const nm = document.createElement("span"); nm.textContent = s.label;
+      row.append(key, val, nm); tip.appendChild(row);
+    }
+    if (this.cfg.series[0].k === "hash" && d.exp) { const r = document.createElement("div"); r.className = "tr"; const sp = document.createElement("span"); sp.textContent = `${fmt(100 * d.hash / d.exp, 1)}% of expected`; r.appendChild(sp); tip.appendChild(r); }
+    tip.hidden = false;
+    const w = tip.offsetWidth; tip.style.left = (cx + 14 + w > g.W ? Math.max(0, cx - 14 - w) : cx + 14) + "px";
+  }
+}
+let hoverT = null, charts = [];
+function hoverAll(t) { hoverT = t; charts.forEach(c => c.setHover(t)); }
+function drawCharts() {
+  const s = last; if (!s) return;
+  const has = H.samples.length > 0;
+  $("nochart").style.display = has ? "none" : "";
+  $("range").style.display = has ? "" : "none";
+  CHARTS.forEach(c => $(c.id).style.display = has ? "" : "none");
+  if (!charts.length) charts = CHARTS.map(c => new Chart(c));
+  if (has) charts.forEach(c => c.render(H.samples, s.results, s.config));
+  $("samplesbox").style.display = has ? "" : "none";
+  if (has && $("samplesbox").open) $("samples").tBodies[0].innerHTML = H.samples.slice(-60).reverse().map(d => `<tr><td>${clock(d.t, true)}</td><td>${esc(d.freq)}</td><td>${esc(d.volt)}</td><td>${fmt(d.hash)}</td><td>${fmt(d.temp)}</td><td>${fmt(d.vr)}</td><td>${fmt(d.power, 2)}</td><td>${fmt(d.err, 2)}</td></tr>`).join("");
+}
+async function pullHistory() {
+  const lastT = H.samples.length ? H.samples[H.samples.length - 1].t : 0;
+  const r = await api("/api/history?" + new URLSearchParams({ since: lastT, epoch: H.epoch ?? "" }));
+  if (String(r.epoch) !== String(H.epoch)) H.samples = r.samples; else H.samples.push(...r.samples);
+  H.epoch = r.epoch;
+  if (H.samples.length > 8000) H.samples = H.samples.slice(-8000);
+  drawCharts();
+}
+
+/* ------------------------------------------------------------------ settings & static bits */
 function buildSettings(cfg) {
   $("settings").innerHTML = schema.map(s =>
     `<div><label for="f_${s.key}">${esc(s.label)}${s.unit ? " (" + esc(s.unit) + ")" : ""}</label>
      <input id="f_${s.key}" type="number" step="any" min="${s.min}" max="${s.max}" value="${esc(cfg[s.key])}">
      <div class="hint">${esc(s.help)}</div></div>`).join("");
-  $("settings").addEventListener("input", () => editing = true);
 }
-function readForm() {
-  const o = { host: $("host").value.trim() };
-  for (const s of schema) o[s.key] = $("f_" + s.key).value;
-  return o;
-}
-
+function readForm() { const o = { host: $("host").value.trim() }; for (const s of schema) o[s.key] = $("f_" + s.key).value; return o; }
 function devInfo(d) {
   if (!d) { $("dev").innerHTML = ""; return; }
   $("dev").innerHTML = `<b>${esc(d.hostname || "Miner")}</b> · ${esc(d.ASICModel || "")} ${esc(d.deviceModel || "")} · firmware ${esc(d.version || "?")} · currently <b>${esc(d.frequency)} MHz / ${esc(d.coreVoltage)} mV</b>`;
 }
+function meterTile(label, val, lim, unit, dec) {
+  if (val == null) return `<div class="stat"><span>${label}</span><b>—</b></div>`;
+  const pct = lim ? Math.min(1, val / lim) : 0;
+  let cls = "ok", note = `of ${lim} ${unit} limit`;
+  if (pct >= .95) { cls = "crit"; note = `At limit (${lim} ${unit})`; } else if (pct >= .85) { cls = "warn"; note = `Near limit (${lim} ${unit})`; }
+  return `<div class="stat meterstat ${cls}"><span>${label}</span><b>${fmt(val, dec)} ${unit}</b><div class="meter"><i style="width:${(pct * 100).toFixed(0)}%"></i></div><small>${esc(note)}</small></div>`;
+}
 
+/* ------------------------------------------------------------------ render (per state poll) */
 function render(s) {
   last = s;
   if (!schema) { schema = s.schema; buildSettings(s.config); if (s.config.host) $("host").value = s.config.host; }
-  const run = s.run, active = s.active;
-  if (!$("host").matches(":focus") && !$("host").value && s.config.host) $("host").value = s.config.host;
+  const run = s.run, active = s.active, c = s.config, t = s.telemetry;
+  if (!$("host").matches(":focus") && !$("host").value && c.host) $("host").value = c.host;
   if (s.device && !$("dev").innerHTML) devInfo(s.device);
 
   $("start").disabled = active; $("reset").disabled = active; $("detect").disabled = active;
-  $("stop").style.display = active ? "" : "none";
+  const rb = $("restore");
+  if (!active && s.original) { rb.style.display = ""; rb.textContent = `Restore original settings (${s.original.freq} MHz / ${s.original.volt} mV)`; } else rb.style.display = "none";
 
   const show = run.status !== "idle";
   $("runcard").style.display = show ? "" : "none";
   if (show) {
     const p = $("pill"); p.className = "pill " + run.status; p.textContent = run.status;
-    const c = run.current;
-    $("phase").textContent = active && c ? `${run.phase === "applying" ? "Applying" : run.phase === "warmup" ? "Warming up" : "Measuring"} ${c.freq} MHz / ${c.volt} mV` : "";
-    $("barw").style.display = active && c && c.total ? "" : "none";
-    if (c && c.total) $("bar").style.width = Math.min(100, 100 * c.elapsed / c.total) + "%";
     $("msg").textContent = run.message || "";
-    const t = s.telemetry;
-    $("stats").innerHTML = t && active ? [
-      ["Hashrate", fmt(t.hash) + " GH/s"], ["ASIC", fmt(t.temp) + " °C"], ["VRM", fmt(t.vr) + " °C"],
-      ["Power", fmt(t.power) + " W"], ["Input", t.vin ? fmt(t.vin / 1000, 2) + " V" : "—"], ["Errors", t.err == null ? "—" : fmt(t.err, 2) + " %"]
-    ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("") : "";
+    const st = s.results.filter(r => r.status === "stable").length, bad = s.results.length - st, b = s.best;
+    let tiles = `<div class="stat"><span>Points tested</span><b>${s.results.length}</b><small>${st} stable · ${bad} not stable</small></div>`;
+    tiles += `<div class="stat"><span>Best stable so far</span><b>${b ? fmt(b.hash) + " GH/s" : "—"}</b><small>${b ? esc(b.freq) + " MHz / " + esc(b.volt) + " mV" : "none yet"}</small></div>`;
+    if (active && t) {
+      tiles += `<div class="stat"><span>Hashrate now</span><b>${fmt(t.hash)} GH/s</b><small>${t.expected ? fmt(100 * t.hash / t.expected, 1) + "% of expected" : ""}</small></div>`;
+      tiles += meterTile("ASIC temp", t.temp, c.max_temp, "°C", 1) + meterTile("VR temp", t.vr, c.max_vr_temp, "°C", 1) + meterTile("Power", t.power, c.max_power, "W", 2);
+      tiles += `<div class="stat"><span>Input voltage</span><b>${t.vin ? fmt(t.vin / 1000, 2) + " V" : "—"}</b><small>min ${fmt(c.min_input_mv / 1000, 1)} V</small></div>`;
+      tiles += `<div class="stat"><span>ASIC errors</span><b>${t.err == null ? "—" : fmt(t.err, 2) + " %"}</b><small>max ${c.max_error_pct} %</small></div>`;
+    }
+    $("stats").innerHTML = tiles;
   }
 
   // recommendations
   const recs = Object.values(s.recommendations || {});
-  $("reccard").style.display = recs.length ? "" : "none";
-  if (!active || !$("recs").children.length || recs.length) {
-    $("recs").innerHTML = recs.map(r => `
+  $("reccard").style.display = (recs.length || (!active && s.results.length)) ? "" : "none";
+  $("recs").innerHTML = recs.length ? recs.map(r => `
       <div class="rec"><h3>${esc(r.label)}</h3>
       <div class="big">${esc(r.freq)} MHz · ${esc(r.volt)} mV</div>
       <p>${esc(r.why)}</p>
       <dl><dt>Hashrate</dt><dd>${fmt(r.hash)} GH/s</dd><dt>ASIC temp</dt><dd>${fmt(r.temp)} °C</dd>
       <dt>Power</dt><dd>${fmt(r.power, 2)} W</dd><dt>Efficiency</dt><dd>${fmt(r.jth, 2)} J/TH</dd></dl>
-      <button data-f="${esc(r.freq)}" data-v="${esc(r.volt)}" ${active ? "disabled" : ""}>Apply to miner</button></div>`).join("");
-  }
-  if (!recs.length && !active && s.results.length) {
-    $("reccard").style.display = ""; $("recs").innerHTML = `<div class="empty">No stable point met the criteria yet.</div>`;
-  }
+      <button data-f="${esc(r.freq)}" data-v="${esc(r.volt)}" ${active ? "disabled" : ""}>Apply to miner</button></div>`).join("")
+    : `<div class="empty">No stable point met the criteria yet.</div>`;
 
-  // results
+  // results table
   $("noresults").style.display = s.results.length ? "none" : "";
   $("tbl").style.display = s.results.length ? "" : "none";
   $("tbl").tBodies[0].innerHTML = s.results.slice().reverse().map(r => `<tr title="${esc(r.reason)}">
-    <td>${esc(r.freq)}</td><td>${esc(r.volt)}</td><td class="s-${esc(r.status)}">${esc(r.status)}${r.reason ? " — " + esc(r.reason) : ""}</td>
+    <td>${esc(r.freq)}</td><td>${esc(r.volt)}</td><td class="s-${esc(r.status)}-t">${r.status === "stable" ? "✓ " : "✗ "}${esc(r.status)}${r.reason ? " — " + esc(r.reason) : ""}</td>
     <td>${fmt(r.hash)}</td><td>${r.ratio == null ? "—" : fmt(r.ratio * 100, 1)}</td><td>${fmt(r.temp)}</td><td>${fmt(r.vr)}</td>
     <td>${fmt(r.power, 2)}</td><td>${fmt(r.jth, 2)}</td><td>${r.err == null ? "—" : fmt(r.err, 2)}</td><td>${fmt(r.reject_pct)}</td></tr>`).join("");
 
   const log = $("log"), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
   log.textContent = (s.log || []).join("\n");
   if (atEnd) log.scrollTop = log.scrollHeight;
+  tick();
 }
 
+/* ------------------------------------------------------------------ 1-second ticker: heartbeat, countdown, run time */
+function tick() {
+  const s = last; if (!s) return;
+  const run = s.run, c = s.config, bar = $("runbar");
+  bar.hidden = !s.active;
+  if (!s.active) return;
+  const nowS = (Date.now() + offset) / 1000, cur = run.current, phase = run.phase, t = s.telemetry;
+  const age = t ? nowS - t.t : null;
+  let dcls = "ok", dtext;
+  if (phase === "init" || phase === "applying" || age == null) { dcls = "wait"; dtext = phase === "applying" ? "Miner restarting with new settings" : "Connecting to the miner…"; }
+  else if (age < 15) dtext = `Live · last reading ${Math.round(age)}s ago`;
+  else if (age < 45) { dcls = "slow"; dtext = `No new reading for ${Math.round(age)}s`; }
+  else { dcls = "bad"; dtext = `No data for ${mmss(age)}. Check the miner`; }
+  if (run.status === "stopping") { dcls = "wait"; dtext = "Stopping and restoring original settings…"; }
+  $("dot").className = "dot " + dcls; $("live").textContent = dtext;
+
+  const names = { applying: "Applying", warmup: "Warming up", measuring: "Measuring" };
+  $("rbtitle").textContent = (phase === "init" || !cur) ? "Starting…" : `Point ${run.point || 1} · ${names[phase] || ""} ${cur.freq} MHz / ${cur.volt} mV`;
+  const order = ["applying", "warmup", "measuring"], idx = order.indexOf(phase);
+  $("steps").innerHTML = ["Apply", "Warm-up", "Measure"].map((n, i) => `<span class="step ${i < idx ? "done" : i === idx ? "on" : ""}">${i < idx ? "✓ " : ""}${n}</span>`).join("");
+
+  const barw = $("barw");
+  if (cur && cur.total) {
+    const el = Math.min(cur.total, cur.elapsed + (performance.now() - fetchedAt) / 1000);
+    barw.classList.remove("ind"); $("bar").style.width = (100 * el / cur.total).toFixed(1) + "%";
+    $("countdown").innerHTML = `<b>${mmss(cur.total - el)}</b> left at this setting`;
+  } else { barw.classList.add("ind"); $("bar").style.width = ""; $("countdown").textContent = ""; }
+  $("rbmsg").textContent = run.message || "";
+
+  const st = s.results.filter(r => r.status === "stable").length, bad = s.results.length - st;
+  const started = run.started ? Date.parse(run.started) / 1000 : nowS, per = c.warmup_s + c.measure_s + 25;
+  const remain = cur ? Math.max(0, Math.floor((c.max_freq - cur.freq) / c.freq_step)) : 0;
+  const plan = cur ? (remain > 0 ? `up to ${remain} more at this voltage (~${(per / 60).toFixed(1)} min each); ends sooner if a setting is unstable` : "last frequency step at this voltage") : "";
+  $("rbinfo").innerHTML = `Run time <b>${mmss(nowS - started)}</b> · <b>${st}</b> stable · <b>${bad}</b> not stable${plan ? " · " + esc(plan) : ""}`;
+}
+
+/* ------------------------------------------------------------------ polling & events */
 async function poll() {
-  try { render(await api("/api/state")); } catch (e) { /* transient */ }
-  setTimeout(poll, last && last.active ? 2500 : 6000);
+  try {
+    const s = await api("/api/state");
+    fetchedAt = performance.now(); offset = s.server_time * 1000 - Date.now();
+    render(s);
+    if (s.active || wasActive || H.samples.length === 0 || String(s.epoch) !== String(H.epoch)) await pullHistory(); else drawCharts();
+    wasActive = s.active;
+  } catch (e) { /* transient */ }
+  setTimeout(poll, last && last.active ? 1500 : 6000);
 }
+setInterval(tick, 1000);
 
-$("detect").onclick = async () => {
-  try { const d = await api("/api/detect", { host: $("host").value }); devInfo(d); toast("Miner found"); }
-  catch (e) { toast(e.message); }
-};
+$("detect").onclick = async () => { try { devInfo(await api("/api/detect", { host: $("host").value })); toast("Miner found"); } catch (e) { toast(e.message); } };
 $("start").onclick = async () => {
   const f = readForm();
-  if (!confirm(`Start tuning ${f.host || "(no host)"}?\n\nThe miner will be restarted many times and run hotter than normal, up to ${f.max_temp} °C / ${f.max_power} W. Original settings are restored afterwards.`)) return;
-  try { await api("/api/start", f); toast("Started"); render(await api("/api/state")); }
-  catch (e) { toast(e.message); }
+  if (!confirm(`Start tuning ${f.host || "(no host)"}?\n\nThe miner will be restarted many times and run hotter than normal, up to ${f.max_temp} °C / ${f.max_power} W. Original settings are restored afterwards. You can hit Emergency stop at any time.`)) return;
+  try { await api("/api/start", f); toast("Started"); H.samples = []; await poll.once(); } catch (e) { toast(e.message); }
 };
-$("stop").onclick = async () => { try { await api("/api/stop", {}); toast("Stopping…"); } catch (e) { toast(e.message); } };
+poll.once = async () => { const s = await api("/api/state"); fetchedAt = performance.now(); offset = s.server_time * 1000 - Date.now(); render(s); };
+$("stop").onclick = async () => { try { await api("/api/stop", {}); toast("Stopping and restoring original settings…"); } catch (e) { toast(e.message); } };
+$("emerg").onclick = async () => {   // deliberately no confirm dialog: it must be one click
+  $("emerg").disabled = true;
+  try { await api("/api/emergency", {}); toast("EMERGENCY STOP sent. Restoring the miner's original settings…"); } catch (e) { toast(e.message); }
+  setTimeout(() => { $("emerg").disabled = false; }, 4000); poll.once().catch(() => {});
+};
+$("restore").onclick = async () => {
+  try { const r = await api("/api/restore", {}); toast(`Restored ${r.freq} MHz / ${r.volt} mV. The miner is restarting.`); } catch (e) { toast(e.message); }
+};
 $("reset").onclick = async () => {
-  if (!confirm("Clear all results and the log?")) return;
-  try { await api("/api/reset", {}); render(await api("/api/state")); } catch (e) { toast(e.message); }
+  if (!confirm("Clear all results, graphs and the log?")) return;
+  try { await api("/api/reset", {}); H.samples = []; await poll.once(); await pullHistory(); } catch (e) { toast(e.message); }
 };
 $("recs").onclick = async e => {
   const b = e.target.closest("button[data-f]"); if (!b) return;
   const f = b.dataset.f, v = b.dataset.v;
   if (!confirm(`Apply ${f} MHz / ${v} mV to ${$("host").value}? The miner will restart.`)) return;
-  try { await api("/api/apply", { host: $("host").value, freq: +f, volt: +v }); toast("Applied. Miner is restarting."); }
-  catch (e) { toast(e.message); }
+  try { await api("/api/apply", { host: $("host").value, freq: +f, volt: +v }); toast("Applied. Miner is restarting."); } catch (e) { toast(e.message); }
 };
+$("range").onclick = e => {
+  const b = e.target.closest("button[data-r]"); if (!b) return;
+  range = b.dataset.r; [...$("range").children].forEach(x => x.classList.toggle("on", x === b)); drawCharts();
+};
+$("samplesbox").addEventListener("toggle", drawCharts);
 poll();
 </script>
 </body>

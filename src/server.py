@@ -23,6 +23,8 @@ from flask import Flask, jsonify, request, send_from_directory
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
+HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
+MAX_SAMPLES = 6000
 TEST_MODE = os.environ.get("TUNER_TEST_MODE") == "1"
 SAMPLE_INTERVAL = float(os.environ.get("SAMPLE_INTERVAL", "5"))
 RESTART_WAIT = float(os.environ.get("RESTART_WAIT", "8"))
@@ -152,8 +154,16 @@ class Tuner:
             "telemetry": None,
             "log": [],
         }
+        self.history = []
+        self.markers = []
+        self.epoch = int(time.time() * 1000)
+        self._hist_saved = 0.0
+        self.restore_lock = threading.Lock()
+        self._dirty = False          # True while the miner may be on a test setting
+        self.emergency_flag = False
         os.makedirs(DATA_DIR, exist_ok=True)
         self._load()
+        self._load_history()
         self._recover()
 
     # ---------- persistence / logging ----------
@@ -203,6 +213,53 @@ class Tuner:
                                      finished=now())
             self.log(msg)
 
+    # ---------- history (for charts) ----------
+    def _load_history(self):
+        try:
+            with open(HISTORY_FILE) as f:
+                h = json.load(f)
+            self.history = h.get("samples", [])[-MAX_SAMPLES:]
+            self.markers = h.get("markers", [])
+            self.epoch = h.get("epoch", self.epoch)
+        except (OSError, ValueError):
+            pass
+
+    def _save_history(self, force=False):
+        if not force and time.time() - self._hist_saved < 20:
+            return
+        with self.lock:
+            blob = json.dumps({"epoch": self.epoch, "samples": self.history, "markers": self.markers},
+                              separators=(",", ":"))
+        try:
+            tmp = HISTORY_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(blob)
+            os.replace(tmp, HISTORY_FILE)
+            self._hist_saved = time.time()
+        except OSError:
+            pass
+
+    def _record(self, s, freq, volt):
+        row = {"t": round(s["t"], 1), "hash": round(s["hash"], 1), "temp": s["temp"], "vr": s["vr"],
+               "power": s["power"], "freq": freq, "volt": volt, "exp": s["expected"] or None,
+               "err": s["err"]}
+        with self.lock:
+            self.history.append(row)
+            if len(self.history) > MAX_SAMPLES:
+                del self.history[:len(self.history) - MAX_SAMPLES]
+        self._save_history()
+
+    def _mark(self, freq, volt):
+        with self.lock:
+            self.markers.append({"t": round(time.time(), 1), "freq": freq, "volt": volt,
+                                 "n": len(self.state["results"]) + 1})
+
+    def clear_history(self):
+        with self.lock:
+            self.history, self.markers = [], []
+            self.epoch = int(time.time() * 1000)
+        self._save_history(force=True)
+
     # ---------- public API ----------
     @property
     def active(self):
@@ -220,7 +277,12 @@ class Tuner:
             self.state["telemetry"] = None
             self.stop_ev.clear()
             self.k = None
-        self._set_run(status="running", message="Starting…", phase="init", current=None,
+            self.state["original"] = None   # never restore a stale value from an earlier run
+            self.emergency_flag = False
+            self._dirty = False
+            self.dev = Bitaxe(cfg["host"])
+        self.clear_history()
+        self._set_run(status="running", message="Starting…", phase="init", current=None, point=0,
                       started=now(), finished=None)
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
@@ -229,6 +291,29 @@ class Tuner:
         if self.active:
             self.stop_ev.set()
             self._set_run(status="stopping", message="Stopping and restoring original settings…")
+
+    def emergency(self):
+        """Immediate stop: don't wait for the run loop, put the original settings back right now."""
+        if not self.active:
+            raise RuntimeError("No run in progress")
+        self.emergency_flag = True
+        self.stop_ev.set()
+        self._set_run(status="stopping", message="EMERGENCY STOP: restoring original settings…")
+        self.log("EMERGENCY STOP pressed")
+        threading.Thread(target=self._restore, daemon=True).start()
+
+    def restore_original(self):
+        if self.active:
+            raise RuntimeError("A run is in progress. Use Emergency stop.")
+        orig = self.state.get("original")
+        host = self.state["config"].get("host")
+        if not orig or not host:
+            raise ValueError("No saved original settings to restore")
+        d = Bitaxe(host)
+        d.set(orig["freq"], orig["volt"])
+        d.restart()
+        self.log(f"Restored original settings ({orig['freq']} MHz / {orig['volt']} mV) on request")
+        return orig
 
     def apply(self, host, freq, volt):
         if self.active:
@@ -278,13 +363,22 @@ class Tuner:
     def _apply_and_wait(self, freq, volt):
         self._set_run(phase="applying", message=f"Testing {freq} MHz / {volt} mV",
                       current={"freq": freq, "volt": volt, "elapsed": 0, "total": 0})
-        self.dev.set(freq, volt)
+        if self.stop_ev.is_set():
+            raise Aborted()
+        self._dirty = True
+        try:
+            self.dev.set(freq, volt)
+        finally:
+            self._dirty = True   # set again after the call: a late PATCH must never go unrestored
+        if self.stop_ev.is_set():
+            raise Aborted()
         self.dev.restart()
         self._sleep(RESTART_WAIT)
         deadline = time.time() + 150
         while True:
             try:
                 s = self._sample()
+                self._record(s, freq, volt)
                 break
             except requests.RequestException:
                 if time.time() > deadline:
@@ -298,6 +392,7 @@ class Tuner:
 
     def _measure_point(self, freq, volt):
         c = self.state["config"]
+        self._mark(freq, volt)
         self._apply_and_wait(freq, volt)
         total = c["warmup_s"] + c["measure_s"]
         t0 = time.time()
@@ -321,6 +416,7 @@ class Tuner:
                 continue
             with self.lock:
                 self.state["telemetry"] = s
+            self._record(s, freq, volt)
             hard = self._hard_limit(s)
             if hard:
                 break
@@ -387,6 +483,7 @@ class Tuner:
         }
 
     def _test_point(self, freq, volt):
+        self._set_run(point=len(self.state["results"]) + 1)
         retries = self.state["config"]["retries"]
         for attempt in range(retries + 1):
             self.log(f"Testing {freq} MHz / {volt} mV" + (f" (retest {attempt})" if attempt else ""))
@@ -400,6 +497,7 @@ class Tuner:
                  + (f" {res['hash']} GH/s, {res['temp']}°C, {res['power']} W, {res['jth']} J/TH"
                     if res.get("hash") else f": {res.get('reason', '')}"))
         self._save()
+        self._save_history(force=True)
         return res
 
     def _run(self):
@@ -457,28 +555,40 @@ class Tuner:
         except Aborted:
             status, message = "stopped", "Stopped by you."
         except Exception as e:  # noqa: BLE001
-            status, message = "error", str(e)
+            if self.stop_ev.is_set():      # errors caused by our own emergency restore are not errors
+                status, message = "stopped", "Stopped by you."
+            else:
+                status, message = "error", str(e)
         finally:
             restored = self._restore()
             if not restored:
                 status = "error"
                 message += " WARNING: could not restore the original settings. Check the miner in AxeOS!"
+            elif self.emergency_flag and status == "stopped":
+                message = "Emergency stop: original settings restored."
+            self._save_history(force=True)
             self.log(message)
             self._set_run(status=status, message=message, phase="", current=None, finished=now())
 
     def _restore(self):
+        """Put the miner back on its original settings. Safe to call from several threads."""
         orig = self.state.get("original")
         if not orig:
             return True
-        for attempt in range(5):
-            try:
-                self.dev.set(orig["freq"], orig["volt"])
-                self.dev.restart()
-                self.log(f"Restored original settings ({orig['freq']} MHz / {orig['volt']} mV)")
-                return True
-            except requests.RequestException:
-                time.sleep(3)
-        return False
+        with self.restore_lock:
+            if not self._dirty:
+                return True          # nothing was changed since the last restore
+            dev = self.dev or Bitaxe(self.state["config"]["host"])
+            for _ in range(5):
+                try:
+                    dev.set(orig["freq"], orig["volt"])
+                    dev.restart()
+                    self._dirty = False
+                    self.log(f"Restored original settings ({orig['freq']} MHz / {orig['volt']} mV)")
+                    return True
+                except requests.RequestException:
+                    time.sleep(3)
+            return False
 
     @staticmethod
     def _device_summary(i):
@@ -550,6 +660,10 @@ def api_state():
     with tuner.lock:
         s = dict(tuner.state)
         s["recommendations"] = recommend(s["results"], s["config"])
+        stable = [r for r in s["results"] if r["status"] == "stable" and r.get("hash")]
+        s["best"] = max(stable, key=lambda r: r["hash"]) if stable else None
+        s["server_time"] = time.time()
+        s["epoch"] = tuner.epoch
         s["schema"] = SCHEMA
         s["test_mode"] = TEST_MODE
         s["active"] = tuner.active
@@ -580,6 +694,39 @@ def api_start():
     return jsonify({"ok": True})
 
 
+@app.post("/api/emergency")
+def api_emergency():
+    try:
+        tuner.emergency()
+    except RuntimeError as e:
+        return err(str(e), 409)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/restore")
+def api_restore():
+    try:
+        orig = tuner.restore_original()
+    except (RuntimeError, ValueError) as e:
+        return err(str(e))
+    except requests.RequestException as e:
+        return err(f"Couldn't reach the miner: {e}")
+    return jsonify({"ok": True, "freq": orig["freq"], "volt": orig["volt"]})
+
+
+@app.get("/api/history")
+def api_history():
+    try:
+        since = float(request.args.get("since", 0) or 0)
+    except ValueError:
+        since = 0.0
+    with tuner.lock:
+        if request.args.get("epoch") != str(tuner.epoch):
+            since = 0.0
+        samples = [x for x in tuner.history if x["t"] > since]
+        return jsonify(epoch=tuner.epoch, samples=samples, markers=tuner.markers, now=time.time())
+
+
 @app.post("/api/stop")
 def api_stop():
     tuner.stop()
@@ -604,6 +751,7 @@ def api_reset():
         return err("Stop the run first")
     with tuner.lock:
         tuner.state.update(results=[], log=[], telemetry=None)
+        tuner.clear_history()
         tuner.state["run"] = {"status": "idle", "message": "", "phase": "", "current": None,
                               "started": None, "finished": None}
     tuner._save()

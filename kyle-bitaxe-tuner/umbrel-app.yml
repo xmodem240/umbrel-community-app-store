@@ -2,7 +2,7 @@ manifestVersion: 1
 id: kyle-bitaxe-tuner
 category: bitcoin
 name: Bitaxe Tuner
-version: "0.1.0"
+version: "0.2.0"
 tagline: Find safe overclock profiles for your Bitaxe automatically
 description: >-
   Bitaxe Tuner steps your Bitaxe's frequency and core voltage up in small increments, restarts
@@ -31,6 +31,19 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Initial release.
+  Live progress, emergency stop and graphs.
+
+
+  - Sticky live status bar while tuning: heartbeat ("last reading 2s ago"), current point and phase,
+    progress bar with countdown, run time and how many points are left at this voltage.
+
+  - One-click EMERGENCY STOP that restores the miner's original settings immediately.
+
+  - "Restore original settings" button when no run is active.
+
+  - Live graphs of hashrate, ASIC/VR temperature and power, split per test point and marked
+    stable/unstable, with your safety limits drawn in. Hover any graph to read exact values.
+
+  - Live temperature and power meters against your limits.
 submitter: Kyle
 submission: https://github.com/xmodem240/umbrel-community-app-store

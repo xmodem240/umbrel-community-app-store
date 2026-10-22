@@ -13,6 +13,14 @@ actually stable, with three recommended profiles: **max hashrate**, **best effic
    stable frequency. It ends when more voltage stops helping, or at your max frequency/voltage.
 5. Original settings are restored on finish, on **Stop**, on any error, and on app restart/crash.
 
+## While it runs
+- A sticky status bar shows a live heartbeat, the current point and phase (apply, warm-up, measure),
+  a progress bar with countdown, and run time.
+- **EMERGENCY STOP** (big red button) aborts immediately and writes the original settings back
+  right away, without waiting for the current step to finish.
+- Live graphs of hashrate, ASIC/VR temperature and power, split per test point (✓ stable / ✗ not),
+  with your limits drawn in. Hover for exact values. A raw-samples table is under the graphs.
+
 **Hard limits** (ASIC temp, VR temp, power, input voltage min/max) end the run for that point immediately.
 All limits are editable but clamped to sane maximums in the backend.
 
@@ -28,7 +36,7 @@ All limits are editable but clamped to sane maximums in the backend.
 ## Tested
 `tests/mock_bitaxe.py` simulates the AxeOS API (`/api/system/info`, `PATCH /api/system`, `/api/system/restart`).
 Run it, then run `src/server.py` with `TUNER_TEST_MODE=1 DATA_DIR=./data` to try the app without hardware.
-Verified against the simulator: full sweep, voltage escalation, thermal abort, manual stop, and recovery after `kill -9`.
+Verified against the simulator: full sweep, voltage escalation, thermal abort, manual stop, emergency stop, and recovery after `kill -9`.
 **Not yet verified:** the Docker image build and install on a real Umbrel, and behavior on real Bitaxe firmware.
 
 ## Notes / assumptions
