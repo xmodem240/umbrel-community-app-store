@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitaxe Tuner</title>
+<style>
+:root{
+  --bg:#0f1115;--card:#171a21;--line:#262b36;--text:#e8eaf0;--mute:#8b93a5;
+  --accent:#f7931a;--ok:#3ecf8e;--bad:#ff5d5d;--warn:#f5c04a;--input:#0f1115;
+}
+@media (prefers-color-scheme:light){:root{
+  --bg:#f5f6f8;--card:#fff;--line:#e2e5ec;--text:#15181f;--mute:#667085;--input:#fff;--accent:#d97706;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:4px 0 2px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 12px;font-weight:600}
+.sub{color:var(--mute);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.warn{border-color:color-mix(in srgb,var(--warn) 50%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--card));font-size:13.5px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+label{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
+input{background:var(--input);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit;width:100%}
+input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+button{background:var(--accent);color:#111;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+button.danger{background:var(--bad);color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+.grow{flex:1;min-width:200px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.hint{font-size:11.5px;color:var(--mute);margin-top:3px}
+details summary{cursor:pointer;color:var(--mute);font-size:13px;margin:12px 0}
+.dev{font-size:13px;color:var(--mute);margin-top:10px}
+.dev b{color:var(--text);font-weight:600}
+.status{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:var(--line)}
+.pill.running,.pill.stopping{background:color-mix(in srgb,var(--accent) 25%,transparent);color:var(--accent)}
+.pill.done{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
+.pill.error,.pill.interrupted{background:color-mix(in srgb,var(--bad) 22%,transparent);color:var(--bad)}
+.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin:12px 0 6px}
+.bar>i{display:block;height:100%;background:var(--accent);transition:width .6s}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-top:12px}
+.stat{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.stat span{display:block;font-size:11px;color:var(--mute)}
+.stat b{font-size:17px}
+.recs{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.rec{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--bg)}
+.rec h3{margin:0 0 2px;font-size:15px}
+.rec .big{font-size:22px;font-weight:700;margin:6px 0}
+.rec p{margin:0 0 10px;color:var(--mute);font-size:12.5px}
+.rec dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:0 0 12px;font-size:13px}
+.rec dt{color:var(--mute)}.rec dd{margin:0;text-align:right}
+.rec button{width:100%}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child,th:nth-child(3),td:nth-child(3){text-align:left}
+th{color:var(--mute);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.tw{overflow-x:auto}
+.s-stable{color:var(--ok)}.s-unstable{color:var(--bad)}.s-thermal,.s-power,.s-input{color:var(--warn)}
+pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--mute);white-space:pre-wrap}
+.msg{margin-top:8px;font-size:13px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--card);border:1px solid var(--line);padding:10px 16px;border-radius:10px;box-shadow:0 6px 24px #0006;display:none;z-index:5}
+.empty{color:var(--mute);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Bitaxe Tuner</h1>
+  <p class="sub">Steps frequency and core voltage up in small increments, tests each point, and tells you which settings are actually stable.</p>
+
+  <div class="card warn">
+    <b>Overclocking can damage hardware.</b> Every point is held to hard limits (ASIC temp, VR temp, power, input voltage) and the miner's original settings are restored when a run ends, is stopped, or this app restarts.
+    Set the limits below to match <em>your</em> board and power supply. Make sure your fan and cooling are working before you start. A run takes a while; leave the miner alone while it works.
+  </div>
+
+  <div class="card">
+    <h2>Miner</h2>
+    <div class="row">
+      <div class="grow"><label for="host">Bitaxe IP address or hostname</label>
+        <input id="host" placeholder="192.168.1.50" autocomplete="off"></div>
+      <button class="ghost" id="detect">Detect</button>
+    </div>
+    <div class="dev" id="dev"></div>
+
+    <details>
+      <summary>Limits and tuning settings</summary>
+      <div class="grid" id="settings"></div>
+    </details>
+
+    <div class="row" style="margin-top:14px">
+      <button id="start">Start tuning</button>
+      <button class="danger" id="stop" style="display:none">Stop &amp; restore</button>
+      <button class="ghost" id="reset">Clear results</button>
+      <a href="/api/export" style="margin-left:auto"><button class="ghost" type="button">Export JSON</button></a>
+    </div>
+  </div>
+
+  <div class="card" id="runcard" style="display:none">
+    <h2>Run</h2>
+    <div class="status"><span class="pill" id="pill"></span><span id="phase"></span></div>
+    <div class="bar" id="barw" style="display:none"><i id="bar"></i></div>
+    <div class="msg" id="msg"></div>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="card" id="reccard" style="display:none">
+    <h2>Recommended profiles</h2>
+    <div class="recs" id="recs"></div>
+    <p class="hint" style="margin-top:12px">Applying writes the frequency and core voltage to the miner and restarts it. Watch temperatures for the first few hours; a short test doesn't prove long-term stability.</p>
+  </div>
+
+  <div class="card">
+    <h2>Results</h2>
+    <div class="tw"><table id="tbl"><thead><tr>
+      <th>MHz</th><th>mV</th><th>Result</th><th>GH/s</th><th>% exp</th><th>ASIC °C</th><th>VR °C</th><th>W</th><th>J/TH</th><th>Err %</th><th>Rej %</th>
+    </tr></thead><tbody></tbody></table></div>
+    <div class="empty" id="noresults">No results yet.</div>
+  </div>
+
+  <div class="card"><h2>Log</h2><pre id="log"></pre></div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (v, d = 1) => v == null ? "—" : Number(v).toFixed(d);
+let schema = null, last = null, editing = false;
+
+function toast(t) { const e = $("toast"); e.textContent = t; e.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = "none", 4500); }
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function buildSettings(cfg) {
+  $("settings").innerHTML = schema.map(s =>
+    `<div><label for="f_${s.key}">${esc(s.label)}${s.unit ? " (" + esc(s.unit) + ")" : ""}</label>
+     <input id="f_${s.key}" type="number" step="any" min="${s.min}" max="${s.max}" value="${esc(cfg[s.key])}">
+     <div class="hint">${esc(s.help)}</div></div>`).join("");
+  $("settings").addEventListener("input", () => editing = true);
+}
+function readForm() {
+  const o = { host: $("host").value.trim() };
+  for (const s of schema) o[s.key] = $("f_" + s.key).value;
+  return o;
+}
+
+function devInfo(d) {
+  if (!d) { $("dev").innerHTML = ""; return; }
+  $("dev").innerHTML = `<b>${esc(d.hostname || "Miner")}</b> · ${esc(d.ASICModel || "")} ${esc(d.deviceModel || "")} · firmware ${esc(d.version || "?")} · currently <b>${esc(d.frequency)} MHz / ${esc(d.coreVoltage)} mV</b>`;
+}
+
+function render(s) {
+  last = s;
+  if (!schema) { schema = s.schema; buildSettings(s.config); if (s.config.host) $("host").value = s.config.host; }
+  const run = s.run, active = s.active;
+  if (!$("host").matches(":focus") && !$("host").value && s.config.host) $("host").value = s.config.host;
+  if (s.device && !$("dev").innerHTML) devInfo(s.device);
+
+  $("start").disabled = active; $("reset").disabled = active; $("detect").disabled = active;
+  $("stop").style.display = active ? "" : "none";
+
+  const show = run.status !== "idle";
+  $("runcard").style.display = show ? "" : "none";
+  if (show) {
+    const p = $("pill"); p.className = "pill " + run.status; p.textContent = run.status;
+    const c = run.current;
+    $("phase").textContent = active && c ? `${run.phase === "applying" ? "Applying" : run.phase === "warmup" ? "Warming up" : "Measuring"} ${c.freq} MHz / ${c.volt} mV` : "";
+    $("barw").style.display = active && c && c.total ? "" : "none";
+    if (c && c.total) $("bar").style.width = Math.min(100, 100 * c.elapsed / c.total) + "%";
+    $("msg").textContent = run.message || "";
+    const t = s.telemetry;
+    $("stats").innerHTML = t && active ? [
+      ["Hashrate", fmt(t.hash) + " GH/s"], ["ASIC", fmt(t.temp) + " °C"], ["VRM", fmt(t.vr) + " °C"],
+      ["Power", fmt(t.power) + " W"], ["Input", t.vin ? fmt(t.vin / 1000, 2) + " V" : "—"], ["Errors", t.err == null ? "—" : fmt(t.err, 2) + " %"]
+    ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("") : "";
+  }
+
+  // recommendations
+  const recs = Object.values(s.recommendations || {});
+  $("reccard").style.display = recs.length ? "" : "none";
+  if (!active || !$("recs").children.length || recs.length) {
+    $("recs").innerHTML = recs.map(r => `
+      <div class="rec"><h3>${esc(r.label)}</h3>
+      <div class="big">${esc(r.freq)} MHz · ${esc(r.volt)} mV</div>
+      <p>${esc(r.why)}</p>
+      <dl><dt>Hashrate</dt><dd>${fmt(r.hash)} GH/s</dd><dt>ASIC temp</dt><dd>${fmt(r.temp)} °C</dd>
+      <dt>Power</dt><dd>${fmt(r.power, 2)} W</dd><dt>Efficiency</dt><dd>${fmt(r.jth, 2)} J/TH</dd></dl>
+      <button data-f="${esc(r.freq)}" data-v="${esc(r.volt)}" ${active ? "disabled" : ""}>Apply to miner</button></div>`).join("");
+  }
+  if (!recs.length && !active && s.results.length) {
+    $("reccard").style.display = ""; $("recs").innerHTML = `<div class="empty">No stable point met the criteria yet.</div>`;
+  }
+
+  // results
+  $("noresults").style.display = s.results.length ? "none" : "";
+  $("tbl").style.display = s.results.length ? "" : "none";
+  $("tbl").tBodies[0].innerHTML = s.results.slice().reverse().map(r => `<tr title="${esc(r.reason)}">
+    <td>${esc(r.freq)}</td><td>${esc(r.volt)}</td><td class="s-${esc(r.status)}">${esc(r.status)}${r.reason ? " — " + esc(r.reason) : ""}</td>
+    <td>${fmt(r.hash)}</td><td>${r.ratio == null ? "—" : fmt(r.ratio * 100, 1)}</td><td>${fmt(r.temp)}</td><td>${fmt(r.vr)}</td>
+    <td>${fmt(r.power, 2)}</td><td>${fmt(r.jth, 2)}</td><td>${r.err == null ? "—" : fmt(r.err, 2)}</td><td>${fmt(r.reject_pct)}</td></tr>`).join("");
+
+  const log = $("log"), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+  log.textContent = (s.log || []).join("\n");
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+
+async function poll() {
+  try { render(await api("/api/state")); } catch (e) { /* transient */ }
+  setTimeout(poll, last && last.active ? 2500 : 6000);
+}
+
+$("detect").onclick = async () => {
+  try { const d = await api("/api/detect", { host: $("host").value }); devInfo(d); toast("Miner found"); }
+  catch (e) { toast(e.message); }
+};
+$("start").onclick = async () => {
+  const f = readForm();
+  if (!confirm(`Start tuning ${f.host || "(no host)"}?\n\nThe miner will be restarted many times and run hotter than normal, up to ${f.max_temp} °C / ${f.max_power} W. Original settings are restored afterwards.`)) return;
+  try { await api("/api/start", f); toast("Started"); render(await api("/api/state")); }
+  catch (e) { toast(e.message); }
+};
+$("stop").onclick = async () => { try { await api("/api/stop", {}); toast("Stopping…"); } catch (e) { toast(e.message); } };
+$("reset").onclick = async () => {
+  if (!confirm("Clear all results and the log?")) return;
+  try { await api("/api/reset", {}); render(await api("/api/state")); } catch (e) { toast(e.message); }
+};
+$("recs").onclick = async e => {
+  const b = e.target.closest("button[data-f]"); if (!b) return;
+  const f = b.dataset.f, v = b.dataset.v;
+  if (!confirm(`Apply ${f} MHz / ${v} mV to ${$("host").value}? The miner will restart.`)) return;
+  try { await api("/api/apply", { host: $("host").value, freq: +f, volt: +v }); toast("Applied. Miner is restarting."); }
+  catch (e) { toast(e.message); }
+};
+poll();
+</script>
+</body>
+</html>

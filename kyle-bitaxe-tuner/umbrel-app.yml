@@ -1,0 +1,36 @@
+manifestVersion: 1
+id: kyle-bitaxe-tuner
+category: bitcoin
+name: Bitaxe Tuner
+version: "0.1.0"
+tagline: Find safe overclock profiles for your Bitaxe automatically
+description: >-
+  Bitaxe Tuner steps your Bitaxe's frequency and core voltage up in small increments, restarts
+  the miner at each step, and measures hashrate, ASIC error rate, rejected shares, temperatures,
+  power and efficiency. A setting only counts as stable if it holds the expected hashrate with low
+  errors, and every test is bounded by hard limits you set for ASIC temperature, voltage regulator
+  temperature, power draw and input voltage.
+
+
+  When the sweep finishes it recommends three profiles: maximum hashrate, best efficiency (J/TH) and
+  a "safe daily" profile with frequency headroom and thermal margin. You can apply any of them to
+  the miner with one click. Your miner's original settings are always restored when a run ends, is
+  stopped, or the app restarts.
+
+
+  Overclocking can damage hardware and void warranties. Use at your own risk and set the limits to
+  match your board and power supply.
+developer: Kyle
+website: https://github.com/xmodem240/umbrel-community-app-store
+dependencies: []
+repo: https://github.com/xmodem240/umbrel-community-app-store
+support: https://github.com/xmodem240/umbrel-community-app-store/issues
+port: 8420
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+releaseNotes: >-
+  Initial release.
+submitter: Kyle
+submission: https://github.com/xmodem240/umbrel-community-app-store
