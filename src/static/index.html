@@ -150,7 +150,7 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
 </head>
 <body>
 <main>
-  <h1>Bitaxe Tuner</h1>
+  <h1>Bitaxe Tuner <small id="ver" style="font-size:12px;font-weight:500;color:var(--muted)"></small></h1>
   <p class="sub">Steps frequency and core voltage up in small increments, tests each point, and tells you which settings are actually stable.</p>
 
   <div class="card warn-card">
@@ -464,6 +464,7 @@ function meterTile(label, val, lim, unit, dec) {
 /* ------------------------------------------------------------------ render (per state poll) */
 function render(s) {
   last = s;
+  if (s.version) $("ver").textContent = "v" + s.version;
   const sw = $("storagewarn"); sw.hidden = !s.storage_error; sw.textContent = s.storage_error || "";
   if (!schema) { schema = s.schema; buildSettings(s.config); if (s.config.host) $("host").value = s.config.host; }
   const run = s.run, active = s.active, c = s.config, t = s.telemetry;
@@ -566,7 +567,21 @@ async function poll() {
 }
 setInterval(tick, 1000);
 
-$("detect").onclick = async () => { try { devInfo(await api("/api/detect", { host: $("host").value })); toast("Miner found"); } catch (e) { toast(e.message); } };
+$("detect").onclick = async () => {
+  try {
+    const d = await api("/api/detect", { host: $("host").value }); devInfo(d);
+    // 12 V boards (e.g. Naja Duo, Gamma Turbo): the 5 V defaults don't fit. Only replace values
+    // still at their 5 V defaults, so anything you typed yourself is kept.
+    const changed = [];
+    const setIf = (k, from, to, label) => { const f = $("f_" + k); if (f && Number(f.value) === from) { f.value = to; changed.push(label); } };
+    if (d.voltage && d.voltage > 9000) {
+      setIf("min_input_mv", 4500, 11000, "min input 11 V");
+      setIf("max_input_mv", 14000, 13500, "max input 13.5 V");
+      setIf("max_power", 30, 100, "max power 100 W");
+    }
+    toast(changed.length ? `12 V board found. Limits set: ${changed.join(", ")}. Check them under Limits.` : "Miner found");
+  } catch (e) { toast(e.message); }
+};
 $("start").onclick = async () => {
   const f = readForm();
   if (!confirm(`Start tuning ${f.host || "(no host)"}?\n\nThe miner will be restarted many times and run hotter than normal, up to ${f.max_temp} °C / ${f.max_power} W. Original settings are restored afterwards. You can hit Emergency stop at any time.`)) return;

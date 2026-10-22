@@ -3,6 +3,7 @@
 Model: stable ceiling rises with voltage; error rate climbs near/over the ceiling;
 temperature and power rise with frequency and voltage.
 """
+import os
 import sys
 import threading
 import time
@@ -45,7 +46,7 @@ def info():
                        boardVersion="201", version="v2.4.0", asicCount=1,
                        smallCoreCount=CORES // 1, frequency=S["freq"], coreVoltage=S["volt"],
                        hashRate=h, expectedHashrate=exp, errorPercentage=err, power=power,
-                       temp=temp, vrTemp=temp + 8, voltage=5100, fanspeed=70,
+                       temp=temp, vrTemp=temp + 8, voltage=int(os.environ.get("MOCK_VIN", "5100")), fanspeed=70,
                        sharesAccepted=S["acc"], sharesRejected=S["rej"])
 
 

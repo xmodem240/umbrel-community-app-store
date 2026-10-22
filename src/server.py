@@ -24,6 +24,7 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
+VERSION = "0.2.3"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
@@ -51,8 +52,9 @@ SCHEMA = [
          help="Hard stop. Exceeding this ends the point as thermal-limited."),
     dict(key="max_vr_temp", label="Max VR temp", unit="°C", default=82, min=50, max=90,
          help="Hard stop for the voltage regulator."),
-    dict(key="max_power", label="Max power", unit="W", default=30, min=5, max=120,
-         help="Hard stop. Set to what your PSU/model can safely supply."),
+    dict(key="max_power", label="Max power", unit="W", default=30, min=5, max=400,
+         help="Hard stop. Set to what your board can safely take, not just the PSU rating "
+              "(5 V single-chip ~25-30 W; 12 V multi-chip boards like the Naja Duo ~100 W on air)."),
     dict(key="min_input_mv", label="Min input voltage", unit="mV", default=4500, min=3000, max=13000,
          help="Abort if the supply sags below this (brown-out risk)."),
     dict(key="max_input_mv", label="Max input voltage", unit="mV", default=14000, min=4000, max=16000,
@@ -690,6 +692,7 @@ def api_state():
         s["best"] = max(stable, key=lambda r: r["hash"]) if stable else None
         s["server_time"] = time.time()
         s["storage_error"] = tuner.storage_error
+        s["version"] = VERSION
         s["epoch"] = tuner.epoch
         s["schema"] = SCHEMA
         s["test_mode"] = TEST_MODE

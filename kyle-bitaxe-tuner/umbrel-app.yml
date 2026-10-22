@@ -3,7 +3,7 @@ id: kyle-bitaxe-tuner
 category: bitcoin
 name: Bitaxe Tuner
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bitaxe-tuner-icon.svg
-version: "0.2.2"
+version: "0.2.3"
 tagline: Find safe overclock profiles for your Bitaxe automatically
 description: >-
   Bitaxe Tuner steps your Bitaxe's frequency and core voltage up in small increments, restarts
@@ -32,11 +32,11 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Fixes "Internal Server Error" when starting a tuning run. The app couldn't write to its data
-  folder on some installs; it now can, and storage problems show a warning instead of stopping
-  the run. Server errors now show their real reason.
+  Supports 12 V multi-chip boards like the Bitaxe Naja Duo: the max power limit now goes up to
+  400 W (it was capped at 120 W), and Detect fills in 12 V input and power limits automatically.
+  The app version is now shown next to the title.
 
 
-  0.2.1 added the app icon. 0.2.0 added live progress, emergency stop and live graphs.
+  0.2.2 fixed the "Internal Server Error" when starting a run.
 submitter: Kyle
 submission: https://github.com/xmodem240/umbrel-community-app-store
