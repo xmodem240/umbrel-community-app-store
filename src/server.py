@@ -11,15 +11,18 @@ continues from the best stable frequency. The miner's original settings are
 always restored when the run ends, is stopped, fails, or the container restarts.
 """
 import json
+import sys
 import os
 import re
 import statistics
 import threading
+import traceback
 import time
 from datetime import datetime, timezone
 
 import requests
 from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.exceptions import HTTPException
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
@@ -161,7 +164,11 @@ class Tuner:
         self.restore_lock = threading.Lock()
         self._dirty = False          # True while the miner may be on a test setting
         self.emergency_flag = False
-        os.makedirs(DATA_DIR, exist_ok=True)
+        self.storage_error = None
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+        except OSError:
+            pass
         self._load()
         self._load_history()
         self._recover()
@@ -177,11 +184,21 @@ class Tuner:
             pass
 
     def _save(self):
+        """Persist state. A storage failure must never break a run (or the safety restore),
+        so it is recorded and shown in the UI instead of raised."""
         with self.lock:
-            tmp = STATE_FILE + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(self.state, f)
-            os.replace(tmp, STATE_FILE)
+            try:
+                tmp = STATE_FILE + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(self.state, f)
+                os.replace(tmp, STATE_FILE)
+                self.storage_error = None
+            except OSError as e:
+                if not self.storage_error:
+                    print(f"WARNING: cannot write {STATE_FILE}: {e}", file=sys.stderr, flush=True)
+                self.storage_error = (f"Can't save to the app's data folder ({e.strerror}). Tuning still works and "
+                                      "the miner is still restored when a run ends, but if the app restarts "
+                                      "mid-run it can't recover. Reinstalling the app usually fixes this.")
 
     def log(self, msg):
         with self.lock:
@@ -646,6 +663,15 @@ tuner = Tuner()
 app = Flask(__name__, static_folder="static", static_url_path="")
 
 
+@app.errorhandler(Exception)
+def unhandled(e):
+    """Return the real reason as JSON instead of a bare 'Internal Server Error' page."""
+    if isinstance(e, HTTPException):
+        return e
+    traceback.print_exc()
+    return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+
 def err(msg, code=400):
     return jsonify({"error": msg}), code
 
@@ -663,6 +689,7 @@ def api_state():
         stable = [r for r in s["results"] if r["status"] == "stable" and r.get("hash")]
         s["best"] = max(stable, key=lambda r: r["hash"]) if stable else None
         s["server_time"] = time.time()
+        s["storage_error"] = tuner.storage_error
         s["epoch"] = tuner.epoch
         s["schema"] = SCHEMA
         s["test_mode"] = TEST_MODE

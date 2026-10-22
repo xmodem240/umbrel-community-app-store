@@ -3,7 +3,7 @@ id: kyle-bitaxe-tuner
 category: bitcoin
 name: Bitaxe Tuner
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bitaxe-tuner-icon.svg
-version: "0.2.1"
+version: "0.2.2"
 tagline: Find safe overclock profiles for your Bitaxe automatically
 description: >-
   Bitaxe Tuner steps your Bitaxe's frequency and core voltage up in small increments, restarts
@@ -32,10 +32,11 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Adds an app icon (also used as the browser tab icon).
+  Fixes "Internal Server Error" when starting a tuning run. The app couldn't write to its data
+  folder on some installs; it now can, and storage problems show a warning instead of stopping
+  the run. Server errors now show their real reason.
 
 
-  From 0.2.0: live progress bar and heartbeat, one-click emergency stop, restore-original-settings
-  button, and live hashrate / temperature / power graphs.
+  0.2.1 added the app icon. 0.2.0 added live progress, emergency stop and live graphs.
 submitter: Kyle
 submission: https://github.com/xmodem240/umbrel-community-app-store

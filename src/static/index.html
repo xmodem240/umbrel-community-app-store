@@ -159,6 +159,8 @@ pre{margin:0;max-height:240px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,mon
     The red <b>Emergency stop</b> button appears at the top while a run is active.
   </div>
 
+  <div class="card warn-card" id="storagewarn" hidden></div>
+
   <!-- live run bar -->
   <section class="runbar" id="runbar" hidden aria-live="polite">
     <div class="rb-main">
@@ -462,6 +464,7 @@ function meterTile(label, val, lim, unit, dec) {
 /* ------------------------------------------------------------------ render (per state poll) */
 function render(s) {
   last = s;
+  const sw = $("storagewarn"); sw.hidden = !s.storage_error; sw.textContent = s.storage_error || "";
   if (!schema) { schema = s.schema; buildSettings(s.config); if (s.config.host) $("host").value = s.config.host; }
   const run = s.run, active = s.active, c = s.config, t = s.telemetry;
   if (!$("host").matches(":focus") && !$("host").value && c.host) $("host").value = c.host;
