@@ -1,0 +1,312 @@
+'use strict';
+
+/**
+ * Central configuration. Reads the Umbrel `bitcoin` app dependency contract
+ * (APP_BITCOIN_*) when present, falls back to plain env vars for local /
+ * non-Umbrel development, and finally to sane localhost defaults so the
+ * app also runs as an ordinary docker-compose stack outside Umbrel.
+ *
+ * No hardcoded container names or IPs anywhere - everything comes from env.
+ */
+
+function pick(...values) {
+  for (const v of values) {
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
+}
+
+// Which node to read from: the choice saved on the dashboard (node-profile.json
+// in DATA_DIR) if there is one, otherwise the environment. See lib/node-profile.js.
+const nodeSettings = require('./node-profile').resolve();
+const bitcoinHost = nodeSettings.host;
+const bitcoinRpcPort = String(nodeSettings.rpcPort);
+const bitcoinRpcUser = nodeSettings.rpcUser;
+const bitcoinRpcPass = nodeSettings.rpcPass;
+
+const zmqExplicit = process.env.BITCOIN_ZMQ_HASHBLOCK_URL;
+const zmqHost = nodeSettings.zmqHost;
+const zmqPort = String(nodeSettings.zmqPort);
+
+const dataDir = pick(process.env.DATA_DIR, '/data');
+
+// For a test copy beside the real app on the same node (the test store):
+// LAB_READ_ONLY=1 keeps it from changing BCHN's peers at all, and
+// PEERMAP_LINK_PORT points the browser link at the test Peer Map instead of
+// the store's 8791.
+const linkPort = Number(process.env.PEERMAP_LINK_PORT);
+
+module.exports = {
+  readOnly: process.env.LAB_READ_ONLY === '1',
+  peerMapLinkPort: Number.isInteger(linkPort) && linkPort > 0 && linkPort < 65536 ? linkPort : 0,
+  // Which node profile is in force and where that came from; `signature` is what
+  // the restart-on-change watcher compares against.
+  node: { profile: nodeSettings.profile, source: nodeSettings.source, signature: nodeSettings.signature },
+  bitcoin: {
+    rpcUrl: `http://${bitcoinHost}:${bitcoinRpcPort}/`,
+    rpcUser: bitcoinRpcUser,
+    rpcPass: bitcoinRpcPass,
+    network: pick(process.env.BITCOIN_NETWORK, process.env.APP_BITCOIN_NETWORK, 'mainnet'),
+    zmqHashBlockUrl: zmqExplicit || `tcp://${zmqHost}:${zmqPort}`,
+  },
+  sqlitePath: pick(process.env.SQLITE_PATH, `${dataDir}/sqlite/bchlab.db`),
+  dashboardPort: Number(pick(process.env.DASHBOARD_PORT, '8788')),
+
+  // Manual peer-add: ports tried in order when the user supplies a bare IP,
+  // or when "Add as Manual" re-probes an existing peer's host (this matters
+  // most for inbound peers, whose getpeerinfo address is their ephemeral
+  // outbound source port, not the port their node actually listens on).
+  manualPeerPorts: [8333],
+
+  // BCHN only actively maintains a limited number of simultaneous
+  // "manual" (addnode) connections - MAX_ADDNODE_CONNECTIONS in its own
+  // net.h, 8. We mirror that cap so we never try to addnode more than BCHN
+  // will actually hold open at once. Note this is a pool of its own, not a
+  // share of BCHN's automatic outbound slots.
+  maxManualPeers: Number(pick(process.env.MAX_MANUAL_PEERS, '8')),
+
+  // How many blocks a peer must have been eligible for before its First %
+  // counts as a track record rather than noise - about eight hours at ~144
+  // blocks a day. Everything that judges a peer by its percentage uses this:
+  // the rotation loop (kicking and promoting alike) and the home-screen
+  // widget's "best peer". Those two used to disagree - the widget called a peer
+  // "best" off 5 blocks while rotation, correctly, would not touch it yet.
+  //
+  // This was 144, a full day, and that was too patient in the direction that
+  // matters. A peer delivering 15% of blocks was watched for twenty hours and
+  // then dropped by BCHN before the loop was allowed to keep it - the app spent
+  // most of a day watching a good peer it was not permitted to act on. At 50 a
+  // strong peer is claimed in a third of the time.
+  //
+  // The cost is at the other end: kicking gets less patient too. A peer whose
+  // true rate is 5% goes 50 blocks without delivering 7.7% of the time and 144
+  // blocks only 0.06% of the time, so the loop will occasionally drop a
+  // mid-table peer that was merely unlucky. That is survivable - the record is
+  // keyed by address and survives the disconnect, so if BCHN dials it again its
+  // history resumes - while the peer lost to waiting is gone with nothing
+  // learned.
+  minEligibleForJudgement: Number(pick(process.env.MIN_ELIGIBLE_FOR_JUDGEMENT, '50')),
+
+  // How many blocks a peer keeps its new manual slot for before anyone may
+  // take it away. Counted from the moment it entered the manual set, not over
+  // its lifetime: the two are the same thing only for a peer that has never
+  // been seen before, and the difference is what let a promoted peer lose its
+  // slot ten minutes later on a real node. It had 900 blocks of history, so by
+  // the lifetime reading its grace had elapsed before it ever held the slot.
+  //
+  // Without any grace the rotation eats itself: a peer that has just taken a
+  // slot has almost no recent record yet, so it reads as the weakest of the
+  // eight and is evicted by anyone with a longer history - which puts it back
+  // in the candidate pool, where that history counts again and wins the slot
+  // straight back. Seen in the wild as two peers swapping every ten minutes
+  // for hours, each swap a real disconnect and a real addnode.
+  //
+  // This protects only against eviction by a better peer. It deliberately does
+  // NOT hold a slot for a peer that never connects - retireOfflineManualPeers
+  // still frees that one on the offline grace below.
+  newManualGraceBlocks: Number(pick(process.env.NEW_MANUAL_PEER_GRACE_BLOCKS, '50')),
+
+  // How much better a challenger must be, in points of the peer score (see
+  // score.js - a Wilson lower bound in percent, not the raw First %), before
+  // taking a manual slot away from someone is worth the churn.
+  // "Strictly better" was too weak: 0.6% displacing 0.4% costs a disconnect and
+  // an addnode for a difference of one block in five hundred.
+  //
+  // Deliberately small. The interesting differences at the bottom of a curated
+  // set are fractions of a point - 1.1 / 1.0 / 0.6 / 0.4 on a real node - and a
+  // large threshold would freeze the rotation exactly where it still has work
+  // to do.
+  minSwapMarginPct: Number(pick(process.env.MIN_SWAP_MARGIN_PCT, '0.2')),
+
+  // How many of the most recent blocks count as "lately" for the peer score
+  // (see score.js). Once a peer has been eligible for this many, its score is
+  // that window alone; below it, the lifetime figure fills in the rest.
+  //
+  // 500 blocks is roughly three and a half days - long enough that a peer
+  // delivering nothing across it means something, short enough to notice a
+  // routing change while it still matters. Below a couple of hundred the
+  // window stops distinguishing a bad week from a dead peer; far above a
+  // thousand it stops being "lately" at all.
+  //
+  // This is also the only number left to get wrong here. There used to be a
+  // second one, a weight deciding how far the recent window outranked the
+  // lifetime record, and it was a knob with no defensible setting - see the
+  // comment in score.js for how it failed the exact case it was added for.
+  recentScoreWindowBlocks: Number(pick(process.env.RECENT_SCORE_WINDOW_BLOCKS, '500')),
+
+  // How long a manual peer may stay offline before the rotation loop gives its
+  // slot to someone else.
+  //
+  // These numbers are short on purpose, and they are only defensible because
+  // of the parking below. Losing a manual slot is not losing the peer: the
+  // address is kept, re-probed, and takes its slot straight back the moment it
+  // answers. So the grace period does not have to be long enough to cover
+  // "might come back eventually" - parking covers that, better. It only has to
+  // be long enough to ride out the things that resolve themselves: the peer's
+  // node restarting, a brief network blip, a router reboot. An hour covers all
+  // of those. Beyond that, an empty slot is just an empty slot, and a live
+  // candidate could be using it.
+  //
+  // It is still scaled by record, because a retired peer has to beat the
+  // current weakest to get back in and a mid-table peer might not manage it -
+  // so a better peer gets more room before it has to fight for its place:
+  // grace = clamp(firstPct * offlineGraceHoursPerPct, min, max). 0.8% -> 1h
+  // (the floor), 5% -> 5h, 12% -> 12h, 24% and up -> the 24h ceiling. A peer
+  // with no track record yet gets the floor.
+  offlineGraceMinHours: Number(pick(process.env.OFFLINE_GRACE_MIN_HOURS, '1')),
+  offlineGraceMaxHours: Number(pick(process.env.OFFLINE_GRACE_MAX_HOURS, '24')),
+  offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '1')),
+
+  // Retired manual peers are kept in parked_peer and re-probed a few at a time
+  // on each rotation tick (a TCP handshake each, so this stays a handful of
+  // sockets per ten minutes, not a scan). Repeated failures back the interval
+  // off so a permanently dead address costs almost nothing to keep around.
+  parkedPeerProbesPerTick: Number(pick(process.env.PARKED_PEER_PROBES_PER_TICK, '3')),
+  parkedPeerMinProbeIntervalMinutes: Number(pick(process.env.PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES, '30')),
+
+  // The ceiling the backoff climbs to, and it is not the same for everyone:
+  // how good a peer was decides how long we keep bothering, and for how many
+  // days at all. A peer that delivered 30% of your blocks first is worth
+  // knocking on twice a day for months; one at 0.8% is not worth a knock
+  // every twelve hours for a month, because even if it does come back it is
+  // barely better than whatever BCHN would have handed you anyway.
+  //
+  // Interval ceiling: full speed (parkedPeerMaxProbeIntervalHours) from
+  // parkedPeerFullSpeedPct upwards, sliding linearly to the slow ceiling as
+  // the record approaches zero. 40% -> every 12h, 10% -> ~30h, 1% -> ~46h.
+  parkedPeerMaxProbeIntervalHours: Number(pick(process.env.PARKED_PEER_MAX_PROBE_INTERVAL_HOURS, '12')),
+  parkedPeerSlowProbeIntervalHours: Number(pick(process.env.PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS, '48')),
+  parkedPeerFullSpeedPct: Number(pick(process.env.PARKED_PEER_FULL_SPEED_PCT, '20')),
+
+  // Retention: days = clamp(firstPct * daysPerPct, min, max). 0.8% -> 4 days,
+  // 5% -> 25 days, 36% and up -> the six-month ceiling. Same shape as the
+  // offline grace above, for the same reason - a peer's own record is the
+  // only honest answer to "how long is this worth remembering?".
+  parkedPeerRetentionDaysPerPct: Number(pick(process.env.PARKED_PEER_RETENTION_DAYS_PER_PCT, '5')),
+  parkedPeerMinRetentionDays: Number(pick(process.env.PARKED_PEER_MIN_RETENTION_DAYS, '2')),
+  parkedPeerMaxRetentionDays: Number(pick(process.env.PARKED_PEER_MAX_RETENTION_DAYS, '180')),
+
+  // How long a relay race stays "open" for late stratum-style bookkeeping
+  // is not needed here (relay races resolve synchronously on ZMQ), but the
+  // stratum race timeout window (ms) a pool has to report a new prevhash
+  // before it is scored as a miss for that race.
+  stratumRaceTimeoutMs: Number(pick(process.env.STRATUM_RACE_TIMEOUT_MS, '8000')),
+
+  // Idle-socket timeout for stratum pool connections - a LAST-RESORT
+  // backstop, not the primary way a dead connection is noticed (see
+  // setKeepAlive in stratum-client.js for that). TCP keepalive stays the fast
+  // path, minutes rather than hours; this only has to be long enough that a
+  // genuinely quiet network never causes a reconnect, because a spurious
+  // reconnect costs a false miss.
+  //
+  // Six hours, and the note that used to justify it was wrong. It said this
+  // node had been observed going over 120 minutes between blocks more than
+  // once, and that the arithmetic was therefore being overridden in favour of
+  // what had actually been seen. The database it described is gone - the app
+  // has been reinstalled since - and the one there is now says something else:
+  // across 2,205 gaps the longest is 78 minutes and none reaches two hours.
+  // The record for the whole network since 2009 is 2h19m, set on 1 July 2021
+  // during the Chinese mining ban. A single node seeing 120 minutes twice is
+  // not something that happened.
+  //
+  // What almost certainly did happen is that the app itself was not running -
+  // a hung update, or the stalled ZMQ subscription that dashboard-server.js
+  // now watches for. Both leave the same hole in the record, and neither has
+  // anything to do with how fast blocks were arriving.
+  //
+  // Six hours stands anyway, on a better argument: this is a backstop with no
+  // cost to being generous, it is more than twice the network's all-time
+  // record, and the thing it guards against - a false miss written into the
+  // pool statistics - is the one error in this file that nothing later can
+  // correct.
+  stratumIdleTimeoutMs: Number(pick(process.env.STRATUM_IDLE_TIMEOUT_MS, String(6 * 60 * 60 * 1000))),
+
+  // Username sent with mining.authorize - many solo-mining stratum servers
+  // (ckpool-solo in particular, which GoBrrr Pool and most public solo
+  // pools run) validate this as a real Bitcoin address (since solo payouts
+  // go directly to whoever finds the block) and simply never broadcast
+  // mining.notify to a connection that fails authorize. We never submit
+  // shares, so the address doesn't need to be ours - this is a well-known,
+  // valid, real "eater/burn" address used exactly for this kind of
+  // placeholder purpose. A worker-name suffix (address.bchlab) is
+  // supported by ckpool and makes our connections identifiable in pool
+  // logs without needing a real payout address.
+  stratumAuthorizeAddress: pick(process.env.STRATUM_AUTHORIZE_ADDRESS, '1BitcoinEaterAddressDontSendf59kuE'),
+
+  // Peer snapshot poll interval for the peer-profiler (session bookkeeping,
+  // not block timing - the relay-profiler never polls).
+  peerPollIntervalMs: Number(pick(process.env.PEER_POLL_INTERVAL_MS, '15000')),
+
+  // Docker can only hand an inbound IPv6 connection to our IPv4-only
+  // container by relaying it through docker-proxy (a real userspace TCP
+  // relay, not plain NAT) - and that relay re-originates the connection
+  // from the Docker bridge gateway, so BCHN's own getpeerinfo sees the
+  // peer's "addr" as this local gateway (with a throwaway port), not the
+  // peer's real IPv6. This is a Docker networking limitation, not
+  // something fixable from inside this app's own containers - the actual
+  // fix (disabling Docker's userland-proxy) is a host-wide daemon setting
+  // that restarts every app's networking, well outside this app's scope.
+  // Umbrel's convention for this gateway is 10.21.0.1; configurable in case
+  // a given install's Docker network differs.
+  dockerProxyMaskedAddressHost: pick(process.env.DOCKER_PROXY_MASKED_HOST, '10.21.0.1'),
+
+  // Every Umbrel app container shares the same internal Docker network, so
+  // a peer whose address falls in this range isn't an external node at
+  // all - it's a sibling app on the same host talking to BCHN's P2P
+  // port directly (electrs and mempool's own indexer both do this to sync).
+  // Distinct from dockerProxyMaskedAddressHost above: that one specific
+  // address masks a genuine EXTERNAL peer whose real address BCHN never
+  // learned; everything else in this range is a real, local, non-external
+  // connection whose address is perfectly accurate, just not "a peer" in
+  // any useful sense - nothing to add manually or disconnect on purpose.
+  umbrelInternalNetworkCidr: pick(process.env.UMBREL_INTERNAL_NETWORK_CIDR, '10.21.0.0/16'),
+
+  // relay_race/relay_observation IS the long-term peer-ranking data this
+  // app exists to build up - First/Eligible/First% is computed across ALL
+  // of it, unfiltered by age, so silently aging it out would erode the
+  // app's own core feature over time. It is never time-pruned. Its growth
+  // is bounded on its own terms anyway: one race per block (~144/day) with
+  // a roughly constant number of eligible-peer rows each - nothing like the
+  // unbounded churn of transient peer connections below.
+
+  // Stratum pool history (win%/avg latency) is the same kind of long-term
+  // ranking data for the Stratum Race feature, kept far longer than the
+  // peer-session data below - it's inherently small (a handful of pools)
+  // and exists specifically to answer "which pool wins over months".
+  //
+  // A year, because it turned out to be cheap: measured on a real node it is
+  // about 1,500 rows a day across a race and its observations - some 0.1 MB,
+  // so 36 MB for the full year. The peer tables cost that in a month.
+  stratumHistoryRetentionDays: Number(pick(process.env.STRATUM_HISTORY_RETENTION_DAYS, '365')),
+
+  // A peer that has EVER appeared in relay_observation (i.e. was actually
+  // connected at the moment a block landed, at least once) is one of the
+  // relatively few long-lived connections the ranking is actually about -
+  // its peer row and full session history are never pruned, no matter how
+  // old, same as a manually trusted peer. Everything else - crawler bots,
+  // one-off inbound probes, feelers and addr-fetch connections that came
+  // and went without ever once being around for a block - has no
+  // analytical value here. BCHN's P2P layer churns through
+  // thousands of these; keeping their session history for months was the
+  // actual source of unbounded growth, not the real ranking data, so they
+  // get a much shorter window.
+  feelerPeerRetentionDays: Number(pick(process.env.FEELER_PEER_RETENTION_DAYS, '14')),
+  // How often gathered traffic is written: hourly, 24 small writes a day.
+  // A crash loses at most this much traffic, and nothing else.
+  trafficFlushMs: Number(pick(process.env.TRAFFIC_FLUSH_MS, '3600000')),
+
+  // How many rotation-log entries exist at all. Not a retention window: the
+  // table is trimmed to this on every write, so what is stored is exactly what
+  // the dashboard can show. Nothing is kept that is not shown.
+  rotationLogEntries: Number(pick(process.env.ROTATION_LOG_ENTRIES, '30')),
+
+  logLevel: pick(process.env.LOG_LEVEL, 'info'),
+};
+
+// Every number above came through Number(), which turns a typo into NaN rather
+// than into an error - and NaN never throws, it just makes timers fire flat out
+// and comparisons come out false while the app looks like it is running. So the
+// whole set is checked here, once, and a bad value stops the process with a
+// message naming the variable instead of starting something that quietly does
+// nothing correct. See validate-config.js for the rules.
+require('./validate-config').assertConfig(module.exports);

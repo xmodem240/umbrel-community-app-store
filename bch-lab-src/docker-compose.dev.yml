@@ -1,0 +1,78 @@
+# Local development stack - NOT the Umbrel app package.
+# A throwaway BCHN regtest node (so blocks can be generated on demand to
+# exercise the relay-profiler's ZMQ path) plus the four Bitcoin Cash Lab
+# services, built from the local Dockerfile.
+#
+# UNTESTED: this stack has not been run. The BCHN image is the one the Umbrel
+# BCHN app uses; override with BITCOIND_IMAGE. If `bitcoind` is not on the
+# image's PATH, adjust `entrypoint`.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#   ./test/regtest-generate.sh          # mine a block, watch relay-profiler log it
+#
+# Dashboard: http://localhost:8788
+
+services:
+  bitcoind:
+    image: ${BITCOIND_IMAGE:-mainnet/bitcoin-cash-node:v29.0.0}
+    entrypoint: ["bitcoind"]
+    command:
+      - -regtest=1
+      - -server=1
+      - -rpcuser=bchlab
+      - -rpcpassword=bchlab
+      - -rpcallowip=0.0.0.0/0
+      - -rpcbind=0.0.0.0
+      - -rpcport=18443
+      - -zmqpubhashblock=tcp://0.0.0.0:28332
+      - -txindex=1
+    volumes:
+      - ./dev-data/bitcoind:/data
+    ports:
+      # Loopback only. This node accepts -rpcallowip=0.0.0.0/0 with fixed,
+      # published credentials, so it must never bind to every interface.
+      - "127.0.0.1:18443:18443" # regtest RPC, for manual bitcoin-cli use
+
+  dashboard:
+    build: .
+    command: ["node", "src/dashboard-server.js"]
+    depends_on: [bitcoind]
+    environment: &node-env
+      BITCOIN_RPC_HOST: bitcoind
+      BITCOIN_RPC_PORT: "18443"
+      BITCOIN_RPC_USER: bchlab
+      BITCOIN_RPC_PASS: bchlab
+      BITCOIN_ZMQ_HOST: bitcoind
+      BITCOIN_ZMQ_HASHBLOCK_PORT: "28332"
+      BITCOIN_NETWORK: regtest
+      DATA_DIR: /data
+      LOG_LEVEL: debug
+    volumes:
+      - ./dev-data/app:/data
+    ports:
+      - "8788:8788"
+
+  peer-profiler:
+    build: .
+    command: ["node", "src/peer-profiler.js"]
+    depends_on: [bitcoind]
+    environment: *node-env
+    volumes:
+      - ./dev-data/app:/data
+
+  relay-profiler:
+    build: .
+    command: ["node", "src/relay-profiler.js"]
+    depends_on: [bitcoind]
+    environment: *node-env
+    volumes:
+      - ./dev-data/app:/data
+
+  stratum-race:
+    build: .
+    command: ["node", "src/stratum-race.js"]
+    depends_on: [bitcoind]
+    environment: *node-env
+    volumes:
+      - ./dev-data/app:/data

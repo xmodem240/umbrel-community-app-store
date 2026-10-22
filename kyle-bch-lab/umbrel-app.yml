@@ -1,0 +1,72 @@
+manifestVersion: 1
+id: kyle-bch-lab
+category: bitcoin
+name: Bitcoin Cash Lab
+icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bch-lab-icon.svg
+version: "0.1.0"
+tagline: See which peers bring your Bitcoin Cash node new blocks first
+description: >-
+  Your peers decide how soon your Bitcoin Cash node hears about a new block. Bitcoin Cash Lab notes, for every block, which peer delivered it first and ranks your peers by it.
+
+
+  Pick your node software on the dashboard: the Bitcoin Cash Node app from LoneStrike Labs, WillItMod's AxeBCH, or any other BCHN-compatible node. A built-in test tells you whether RPC and ZMQ block notifications work before you save.
+
+
+  Keep the good peers as manual peers (they are put back after a node restart) and, optionally, let a rotation drop peers that never deliver. Inbound peers are ranked too, but never replaced automatically.
+
+
+  Stratum Race times how quickly each mining pool turns a new block into fresh work: public BCH solo pools, plus a local LoneStrike Cash or AxeBCH pool if you run one. It is off until you switch it on.
+
+
+  Early release: the AxeBCH connection details are unverified, and the app has not yet run against a live BCH node. Based on the MIT-licensed Bitcoin Lab by benunskilled.
+releaseNotes: >-
+  First release. Choose the node software on the dashboard (LoneStrike Labs BCHN app, AxeBCH, or custom), with connection testing and auto-detect.
+developer: Kyle
+website: https://github.com/xmodem240/umbrel-community-app-store
+dependencies: []
+repo: https://github.com/xmodem240/umbrel-community-app-store
+support: https://github.com/xmodem240/umbrel-community-app-store/issues
+port: 8792
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+submitter: Kyle
+submission: https://github.com/xmodem240/umbrel-community-app-store
+widgets:
+  - id: "stats"
+    type: "four-stats"
+    refresh: "60s"
+    endpoint: "dashboard:8788/api/widget/stats"
+    link: ""
+    example:
+      type: "four-stats"
+      link: ""
+      items:
+        - title: "Live Peers"
+          text: "24"
+          subtext: "connected"
+        - title: "Best Peer"
+          text: "33%"
+          subtext: "203.0.113.12:8333"
+        - title: "Fastest Pool"
+          text: "80ms"
+          subtext: "Kryptex BCH"
+        - title: "Manual"
+          text: "8/8"
+          subtext: "manual peers online"
+  - id: "traffic"
+    type: "three-stats"
+    refresh: "3600s"
+    endpoint: "dashboard:8788/api/widget/traffic"
+    link: ""
+    example:
+      type: "three-stats"
+      link: ""
+      items:
+        - text: "8.4 GB"
+          subtext: "sent today"
+        - text: "1.9 GB"
+          subtext: "received today"
+        - text: "312 GB"
+          subtext: "last 30 days"

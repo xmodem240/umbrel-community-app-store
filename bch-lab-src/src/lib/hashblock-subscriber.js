@@ -1,0 +1,102 @@
+'use strict';
+
+const zmq = require('zeromq');
+
+/**
+ * Shared BCHN `pubhashblock` subscriber.
+ *
+ * Both the relay profiler (which records the race) and the dashboard (which
+ * pushes a live block event to the browser) need to know the instant a block
+ * arrives. ZMQ publish/subscribe fans out to every subscriber independently,
+ * so a second subscriber costs BCHN nothing and, importantly, cannot delay or
+ * perturb the first one's measurement - they are separate processes holding
+ * separate sockets.
+ *
+ * The high-resolution timestamp is still captured as the very first statement
+ * after the message arrives, before decoding, so nothing downstream can
+ * pollute the measurement.
+ */
+/**
+ * The block hash carried by a `pubhashblock` message, as a display-order hex
+ * string - the form bitcoin-cli prints and every explorer accepts.
+ *
+ * There is nothing to convert. BCHN has already reversed the bytes by the time
+ * they reach the wire (zmqpublishnotifier.cpp: `data[31 - i] = hash.begin()[i]`),
+ * so the payload is display order and this only hex-encodes it.
+ *
+ * It is a named function purely so that fact can be nailed down by a test:
+ * until v1.15.7 this reversed the bytes a second time, and nothing anywhere
+ * noticed, because a backwards hash still works perfectly well as a database
+ * key. What it does not work as is a hash you hand back to BCHN, which is why
+ * every getblockheader call failed and block_height was NULL on every race.
+ */
+function blockHashFromZmq(payload) {
+  return Buffer.from(payload).toString('hex');
+}
+
+function start({ url, logger, onBlock, reconnectDelayMs = 5000 }) {
+  let stopped = false;
+  let socket = null;
+  // `connected` is worth less than its name suggests, and the reason matters
+  // for anything trying to detect a stalled subscription. zmq's connect() does
+  // not connect: it registers an intent and returns immediately, and libzmq
+  // then retries underneath forever without telling anybody. Point this at a
+  // port with nothing behind it and the flag below stays true, no error is
+  // thrown, and the `for await` loop simply never yields. A wrong port,
+  // zmqpubhashblock not configured, a firewall in the way - all of them look
+  // exactly like a quiet network.
+  //
+  // So the only honest evidence that this is working is that blocks arrive.
+  // startedAtMs is here to give "none have, ever" something to be measured
+  // against, which is the state a misconfigured install sits in from the
+  // first second.
+  const state = { connected: false, lastBlockAtMs: null, startedAtMs: Date.now() };
+
+  (async () => {
+    while (!stopped) {
+      const sock = new zmq.Subscriber();
+      socket = sock;
+      try {
+        sock.connect(url);
+        sock.subscribe('hashblock');
+        state.connected = true;
+        logger.info('subscribed to hashblock', { url });
+
+        for await (const [, msg] of sock) {
+          // Capture the timestamp FIRST, before any parsing or async work.
+          const t0 = process.hrtime.bigint();
+          const detectedAtMs = Date.now();
+          const blockHash = blockHashFromZmq(msg);
+          state.lastBlockAtMs = detectedAtMs;
+          try {
+            onBlock({ blockHash, detectedAtMs, t0 });
+          } catch (err) {
+            logger.error('block handler threw', { blockHash, error: err.stack || err.message });
+          }
+        }
+        // Falling out of the loop without an error means the stream ended
+        // cleanly. Before v1.12.0 that path skipped the delay below (it only
+        // existed in the catch) and never closed the socket, so it span at
+        // full CPU while leaking a file descriptor per iteration.
+        if (!stopped) logger.warn('hashblock stream ended, reconnecting', { url });
+      } catch (err) {
+        if (!stopped) logger.error('zmq subscriber error, reconnecting', { url, error: err.message });
+      } finally {
+        state.connected = false;
+        try { sock.close(); } catch { /* already closed */ }
+      }
+      if (stopped) break;
+      await new Promise((resolve) => setTimeout(resolve, reconnectDelayMs));
+    }
+  })();
+
+  return {
+    state,
+    stop() {
+      stopped = true;
+      try { if (socket) socket.close(); } catch { /* already closed */ }
+    },
+  };
+}
+
+module.exports = { start, blockHashFromZmq };

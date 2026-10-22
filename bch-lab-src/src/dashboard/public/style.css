@@ -1,0 +1,745 @@
+:root {
+  /* Native controls (select, checkbox) drawn dark - a white system select
+     sat in the middle of the Stratum Race card. */
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --panel: #131a22;
+  --border: #1f2a35;
+  --text: #e6edf3;
+  --muted: #8a99a8;
+  --accent: #0ac18e; /* Bitcoin Cash green */
+  --good: #3fb950;
+  --bad: #f85149;
+  --faint: #5b6876;
+  --panel-2: #0f151b;
+  --row: #18212b;
+
+  /* Connection types. One set for both apps of this pair: a peer has the same
+     colour here and in Peer Map, because it is the same peer. Validated as a
+     categorical set against --panel: worst pair CVD dE 12.6 (protanopia),
+     normal-vision dE 15.1, contrast >= 3:1.
+     Manual used to wear the Bitcoin orange, which is this app's brand colour -
+     so did the title and the buttons, and a red status pill beside it measured
+     dE 14.8 against it, below the floor where two colours stay apart. The
+     accent is a brand now, not a category. */
+  --manual: #3987e5;
+  --inbound: #9e9a28;
+  --outbound: #1a9e8f;
+  --umbrel: #8b5cf6;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+  font-size: 18px;
+  margin: 0;
+  color: var(--accent);
+}
+
+/* The link to the other app in the pair. Quiet on purpose: it is an offer, not
+   a part of this dashboard. Hidden until the other side has answered. */
+.sibling-link {
+  margin-right: auto;
+  padding-left: 14px;
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.sibling-link:hover { color: var(--text); }
+
+/* The address doubles as the way over to Peer Map; it should read as a link
+   without turning the table into a wall of blue. */
+.peer-jump { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border); }
+.peer-jump:hover { color: var(--accent); text-decoration-color: var(--accent); }
+
+/* The peer another app pointed at. Marked, not filtered - and unlike the
+   new-block tint it does not fade, so it can still be found after scrolling. */
+tr.row-focus td { background: rgba(10, 193, 142,.10); }
+tr.row-focus td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+.status-pill {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+main {
+  padding: 20px 24px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  /* As wide as Peer Map: at 1200 the nine peer columns did not fit and the
+     tables scrolled sideways on an ordinary laptop screen. */
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+/* The panels re-render every few seconds. Safari anchors the scroll position
+   to something inside them, and when that is replaced it re-anchors and throws
+   the reader somewhere else on the page - so they take no part in anchoring. */
+.card { overflow-anchor: none; }
+
+.card h2 {
+  margin: 0 0 14px;
+  font-size: 15px;
+  color: var(--text);
+}
+
+/* Collapsible sections (Live/Outbound/Manual peer panels) */
+details.card summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details.card summary::-webkit-details-marker { display: none; }
+details.card summary h2 { margin: 0; flex: 1; }
+details.card summary::before {
+  content: '▸';
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform .15s ease;
+}
+details.card[open] summary::before { transform: rotate(90deg); }
+details.card > *:not(summary) { margin-top: 14px; }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.stat {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  position: relative;
+  overflow: hidden;
+}
+/* A colour strip along the foot of a tile: the group it counts. */
+.stat.s-inbound, .stat.s-outbound, .stat.s-manual { box-shadow: inset 0 -3px 0 var(--strip); }
+.stat.s-inbound { --strip: rgba(158,154,40,.6); }
+.stat.s-outbound { --strip: rgba(26,158,143,.6); }
+.stat.s-manual { --strip: rgba(57,135,229,.6); }
+
+.stat .n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.stat .l { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+
+.table-wrap { overflow-x: auto; position: relative; }
+
+/* The row carries the background, so the hover and highlight rules on cells
+   paint over it. */
+.table-wrap table thead tr,
+.table-wrap table tbody tr { background: var(--panel); }
+
+/* separate + border-spacing:0 rather than collapse - visually identical
+   here, since every cell draws its own border-bottom below. */
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* Address/Client can both be long enough (a full subver string especially)
+   to blow up the whole table's width under auto layout, pushing every
+   other column off-screen - cap these two specifically and rely on the
+   title tooltip (set in app.js) for the full value instead. */
+td.cell-truncate {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+th { color: var(--faint); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+
+tr:hover td { background: #17202a; }
+/* A peer that can never deliver a block first: dimmed, and its type cell
+   says "never first" (statusPill). */
+tr.weak td { color: var(--muted); }
+.never { display: block; width: max-content; margin-top: 3px; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.pill.manual { background: rgba(57,135,229,.15); color: var(--manual); }
+.pill.inbound { background: rgba(158,154,40,.18); color: var(--inbound); }
+.pill.outbound { background: rgba(26,158,143,.15); color: var(--outbound); }
+.pill.umbrel { background: rgba(139,92,246,.15); color: var(--umbrel); }
+.pill.offline { background: rgba(138,153,168,.15); color: var(--muted); }
+/* Software that passes no blocks on. Dimmed and labelled "never first" rather
+   than recoloured: every hue in this table already means a connection type, and
+   a fourth meaning on the same axis is one a colour-blind reader cannot
+   separate - measured, not assumed. It is not a fault either; a wallet is doing
+   what a wallet does, and the colour still says what kind of connection this is. */
+.pill.norelay { opacity: .7; }
+/* Peer Rotation's own action log - kick is a removal (bad-colored, even
+   though it's working as intended), promote/swap add a manual peer
+   (good-colored); swap gets the accent color since, unlike a plain
+   promote, it also displaces an existing manual peer. */
+.pill.rotation-kick { background: rgba(248,81,73,.15); color: #e5534b; }
+.pill.rotation-promote { background: rgba(63,185,80,.15); color: var(--good); }
+.pill.rotation-swap { background: rgba(10, 193, 142,.15); color: var(--accent); }
+/* Parking is not a kick - the peer is kept and re-tested - so it gets the
+   neutral treatment rather than the red one a removal gets. */
+.pill.rotation-park { background: rgba(138,153,168,.15); color: var(--muted); }
+.pill.rotation-revive { background: rgba(63,185,80,.15); color: var(--good); }
+
+/* The Add-a-Peer result line. "not reachable" is a perfectly good answer
+   rather than an error - Test exists to produce it - so it is coloured as
+   information, on its own line under the form instead of squeezed beside it
+   where a full sentence had nowhere to go. */
+#manual-add-result { margin-top: 2px; }
+#manual-add-result:empty { display: none; }
+.result-ok { color: var(--good); }
+.result-error { color: var(--bad); }
+
+.parked-peers { margin-top: 14px; }
+.parked-peers h3 { color: var(--text); }
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+/* display: flex above would otherwise beat the hidden attribute: the "found
+   on this Umbrel" note stayed on screen, without its text, after the pools
+   were added. */
+.inline-form[hidden] { display: none; }
+
+.inline-form input {
+  background: #0f151b;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.inline-form input#pool-port { width: 90px; }
+
+button {
+  background: var(--accent);
+  color: #1a1200;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+button:hover { filter: brightness(1.1); }
+button.secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 10px;
+  font-weight: 500;
+}
+
+/* The storage panel. Both groups here delete data permanently, so the warning
+   is a step of its own rather than a modal - it has room to say what goes. */
+.reset-group { margin: 0 0 22px; max-width: 72ch; }
+.reset-group:last-child { margin-bottom: 4px; }
+.reset-group p { margin: 0 0 10px; }
+.reset-confirm {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--bad);
+  border-radius: 6px;
+}
+.reset-confirm p.warn { margin: 0 0 10px; font-size: 13px; color: var(--bad); }
+.reset-confirm button { margin-right: 8px; }
+
+.hint { font-size: 12px; color: var(--muted); }
+
+/* A checkbox with its label; the box itself is drawn as a switch further down. */
+.switch-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.switch-label input[type="checkbox"] { cursor: pointer; }
+
+/* What the switch above does, in the fewest words that still say it. Under the
+   toggle rather than beside it: wedged in as a flex sibling of the label this
+   got about a third of a 1200px card and ran to eight lines with the rest of
+   the row blank. A readable measure, and short sentences broken out as steps -
+   one long paragraph with three asides in it is documentation, and this is a
+   label on a switch. */
+.rotation-hint {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.rotation-hint p { margin: 0; }
+/* Zero margin was fine while one paragraph sat above the list and one below.
+   With two below, they ran together into a single wall of text. */
+.rotation-hint p + p { margin-top: 8px; }
+.rotation-hint ul { margin: 4px 0 8px; padding-left: 18px; }
+.rotation-hint li { margin: 2px 0; }
+
+.rotation-log-table .col-time { width: 14%; }
+.rotation-log-table .col-rot-action { width: 12%; }
+.rotation-log-table .col-address { width: 20%; }
+.rotation-log-table .col-pct { width: 10%; }
+
+.trophy { margin-left: 4px; } /* pool that won the single most recent race */
+
+/* Side by side, not stacked - stacking would double every row's height just
+   to fit two buttons, which makes a wide table tiring to scan. Fits because
+   the Actions column is wide enough (see .col-actions); a table too narrow
+   for it turns into cards instead. */
+/* A real table cell, so it grows with a two-line row and its border lines up;
+   the slots sit in it side by side. */
+.row-actions { white-space: nowrap; }
+td.row-actions > * { display: inline-flex; vertical-align: middle; }
+td.row-actions > * + * { margin-left: 6px; }
+
+/* Each action cell renders a fixed two-slot layout (primary action, then
+   Disconnect) with an empty placeholder - never an omitted element - for
+   whichever slot doesn't apply to a given row (see actionsCell in app.js).
+   A shared min-width across both real buttons and empty placeholders keeps
+   every row's slots starting at the same position regardless of which
+   label (or none) occupies the first one. Font and padding come from the
+   row-button rule further down. */
+.action-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  box-sizing: border-box;
+}
+span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
+/* The first slot holds "Remove" in one row and "Add as Manual" in the next,
+   so it is as wide as the longer one - otherwise Disconnect beside it jumps
+   from row to row. The Manual table only ever holds Remove there, so its
+   slot is narrower, which leaves its row room for the lock. */
+.row-actions > .action-slot:first-child { min-width: 112px; }
+#manual-peer-table .row-actions > .action-slot { min-width: 92px; }
+
+/* Manual Peers: unused capacity (below the app's manual-connection cap)
+   rendered as actual empty rows at the bottom of the table, not just a
+   text footnote - makes "how much room is left" visible at a glance the
+   same way the filled rows above it are. Deliberately plain: same border
+   as every other row, just dashes in each column like any other empty
+   cell in this app (see truncatedCell etc.) - a dashed box around the row
+   read as much heavier/busier than the empty state warranted. */
+tr.empty-slot td { color: var(--muted); }
+
+/* Live Peer Ranking, Outbound Peers, and Manual Peers all render the exact
+   same column set in the exact same order (see the shared .col-* classes
+   on each table's <th> in index.html / the row templates in app.js) - a
+   fixed layout with matching widths per column is what makes Address,
+   Actions etc. actually line up vertically across the three panels instead
+   of each table silently sizing its own columns from its own content. */
+table.peer-table {
+  table-layout: fixed;
+  /* Without a floor, table-layout:fixed + width:100% means the columns shrink
+     with the window instead of the wrapper scrolling: .table-wrap's overflow-x
+     never engages. At 390px all nine cells were clipped and Ping/Session/Total
+     overprinted each other. The nine columns need roughly this much to stay
+     readable; a table that does not get it turns into cards (fitTables). */
+  min-width: 900px;
+}
+
+/* The scroll containers are reachable by keyboard - at narrow widths they are
+   the only way to see the right-hand columns, and a div that scrolls but
+   cannot be focused is unusable without a mouse. */
+.table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Short, static guidance under a panel heading. */
+.panel-note {
+  margin: -4px 0 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.panel-note strong { color: var(--text); font-weight: 600; }
+.col-address { width: 16%; }
+.col-client { width: 10%; }
+/* Widest of the remaining columns on purpose - "MANUAL OFFLINE" is the
+   longest pill value and needs real room, which is exactly what was
+   missing before (the pill visibly ran into First Seen %). overflow:hidden
+   is belt-and-suspenders alongside that width - applied to both the <th>
+   and (via the same class on its <td>, see app.js) the data cell, so even
+   a future longer status value clips instead of spilling into the next
+   column again. */
+.col-status { width: 15%; overflow: hidden; text-overflow: ellipsis; }
+.col-pct { width: 12%; }
+.col-ping { width: 6%; }
+.col-session { width: 10%; }
+.col-total { width: 7%; }
+/* Nudged off the shared 10px th padding - purely a small optical fix so
+   the label sits a bit closer to the data it heads (see .col-actions below
+   for the opposite nudge). Only targets the header - td cells in this
+   column carry no col-* class, so the data itself is untouched. */
+th.col-total { padding-left: 4px; }
+.col-sessions { width: 5%; }
+/* Wide enough for "Add as Manual" and "Disconnect" side by side (see
+   .row-actions). */
+.col-actions { width: 19%; }
+/* Same optical nudge as .col-total above, other direction - the column is
+   wide (room for two buttons) and the plain 10px padding left the label
+   sitting noticeably left of where the buttons actually start. */
+th.col-actions { padding-left: 20px; }
+
+/* Hero: current chain height, pulses via .bump when a new block lands */
+.hero-card { padding: 0; background: none; border: 0; }
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 2fr repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 10px;
+}
+
+.hero-stat {
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #3a2a12;
+  background: radial-gradient(120% 140% at 0% 0%, rgba(10, 193, 142,.16), transparent 60%), var(--panel);
+}
+
+.hero-l {
+  font-size: 11px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.hero-n {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -.01em;
+  line-height: 1.2;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  transition: text-shadow .3s ease;
+}
+
+.hero-n.bump {
+  text-shadow: 0 0 18px rgba(10, 193, 142, .85);
+}
+
+/* BCHN has not answered yet, said in the number's own slot: sentence-sized
+   rather than number-sized, and muted, so it reads as a state rather than as a fault
+   in this app. Dropped the moment a height arrives. */
+/* Quiet by design: the height is the number, this is a footnote to it. The
+   raw variant is what the miner wrote about himself rather than a pool we
+   know, so it reads as a quotation and not as a name. */
+.hero-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.hero-sub b { color: var(--text); font-weight: 600; }
+.hero-sub.raw b { font-style: italic; }
+
+.hero-n.waiting {
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.hero-grid .stat-grid { display: contents; }
+
+/* Status toast for peer/pool row actions (add-manual, remove, disconnect,
+   pool add/remove) - gives an explicit, visible outcome for every button
+   click instead of the row just silently changing (or not) on the next
+   table refresh, which is easy to miss if you're not watching the exact
+   panel a peer moved to/from. */
+.action-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1000;
+  max-width: 420px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: #0f151b;
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+}
+.action-toast.pending { color: var(--muted); border-color: var(--border); }
+.action-toast.success { border-color: var(--good); color: var(--good); }
+.action-toast.error { border-color: var(--bad); color: var(--bad); }
+
+/* Shown only when a background service stops sending heartbeats. Those three
+   processes have no UI of their own, so without this a stopped collector just
+   looks like a node that happens to be quiet. */
+.service-banner {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: rgba(248, 81, 73, .08);
+  border: 1px solid var(--bad);
+  color: var(--bad);
+}
+
+/* Full-screen orange wave that rolls across on a new block */
+.block-wave {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.block-wave.roll {
+  animation: block-wave-roll 1.4s ease-out;
+}
+
+@keyframes block-wave-roll {
+  0% {
+    opacity: 0;
+    background: linear-gradient(100deg,
+      transparent 0%,
+      transparent 38%,
+      rgba(10, 193, 142, .55) 48%,
+      rgba(10, 193, 142, .85) 50%,
+      rgba(10, 193, 142, .55) 52%,
+      transparent 62%,
+      transparent 100%);
+    background-size: 300% 100%;
+    background-position: 150% 0;
+  }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% {
+    opacity: 0;
+    background-position: -50% 0;
+  }
+}
+
+/* Row of the peer(s) that delivered the newest block first - fades in,
+   stays tinted for ~2 minutes (see app.js HIGHLIGHT_MS), fades out. It stays a
+   whole row: it is brief and meant to catch the eye.
+   A connected peer that has delivered a block first at least once: its
+   address in green, the same as in Peer Map. Only the address - near the top
+   of the ranking almost every row has delivered, and whole green rows were a
+   lot of colour for one bit. */
+.table-wrap table tbody tr.row-first-block {
+  background: rgba(10, 193, 142, .22);
+  transition: background 1.2s ease;
+}
+tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: #56d364; }
+.table-wrap table tbody tr.row-first-block:hover { background: rgba(10, 193, 142, .3); }
+.table-wrap table tbody tr.row-first-block:hover td { background: none; }
+
+/* The keep lock in the Manual Peers table. Both the state and the switch:
+   the padlock means the rotation leaves this peer alone. Off shows nothing -
+   an open padlock looked too much like the closed one - and the lock only
+   appears, faded, under the pointer or keyboard focus, to be clicked. */
+.keep-star {
+  background: none;
+  border: 0;
+  padding: 0 8px 0 0;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.keep-star:hover,
+.keep-star:focus-visible {
+  opacity: .4;
+}
+
+.keep-star.on {
+  opacity: 1;
+}
+
+.keep-star:disabled {
+  cursor: default;
+}
+
+/* Visible to screen readers only - the lock needs a real name, and the title
+   attribute alone is not reliably announced. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Traffic card: three tiles, then the bars. Up is the bar colour, down is
+   blue, so the arrows are the legend. */
+.traffic-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 6px; font-variant-numeric: tabular-nums; }
+.traffic-totals .t { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.traffic-totals .l { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+.traffic-totals .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+.traffic-totals .up { color: var(--accent); }
+.traffic-totals .down { color: #58a6ff; margin-left: 8px; }
+.traffic-totals .hint { grid-column: 1 / -1; }
+.traffic-chart { margin-bottom: 10px; }
+.traffic-chart svg { display: block; width: 100%; height: auto; }
+.traffic-chart .sent { fill: url(#traffic-sent); }
+.traffic-chart .recv { fill: #58a6ff; opacity: .8; }
+.traffic-chart .axis { fill: var(--faint); font-size: 11px; }
+.traffic-chart .grid { stroke: #1a2430; stroke-width: 1; }
+@media (max-width: 600px) {
+  .traffic-totals { grid-template-columns: 1fr; }
+  /* The chart shrinks with the screen; its text is set larger so it lands readable. */
+  .traffic-chart .axis { font-size: 36px; }
+}
+
+/* A table too wide for its panel: each row becomes a small card, the address
+   on top, the other values wrapping below it with their column's name in
+   front. Nothing scrolls sideways (see fitTables in app.js). */
+.table-wrap.cards { overflow-x: visible; }
+.table-wrap.cards table, .table-wrap.cards tbody { display: block; min-width: 0; }
+.table-wrap.cards thead { display: none; }
+.cards.cards table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.cards.cards table tr td {
+  display: block; padding: 0; border: 0; width: auto; max-width: 100%; min-width: 0;
+  position: static; box-shadow: none; background: none;
+}
+.cards.cards table tr td[data-col="col-address"],
+.cards.cards table tr td[data-col="col-actions"] { flex: 1 1 100%; }
+.cards.cards table tr td[data-label]:not([data-label=""]):not(:first-child):not([data-col="col-address"]):not([data-col="col-client"]):not([data-col="col-status"]):not([data-col="col-actions"])::before {
+  content: attr(data-label); margin-right: 5px;
+  color: var(--muted); font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+}
+.cards.cards tr.row-first-block { background: rgba(10, 193, 142, .22); }
+.cards.cards tr.row-focus { background: rgba(10, 193, 142,.10); box-shadow: inset 3px 0 0 var(--accent); }
+.cards.cards tr.empty-slot td { display: none; }
+.cards.cards tr.empty-slot::before { content: "Free slot"; color: var(--muted); font-size: 12px; }
+.cards.cards table tr td.row-actions { display: flex; gap: 6px; }
+.cards.cards table tr td.row-actions > * + * { margin-left: 0; }
+/* The rotation log's note is a sentence: on its own line, wrapping. */
+.cards.cards table tr td.hint { flex: 1 1 100%; white-space: normal; }
+
+/* ---- V2 design ---- */
+
+/* Tiles: the label on top, the number under it; the block height twice as
+   wide as a count, with who mined it. */
+.stat .s { font-size: 12px; color: var(--muted); }
+@media (max-width: 900px) {
+  .hero-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-stat { grid-column: 1 / -1; }
+}
+
+/* Headings: what follows the name is quiet, not bold. */
+.card h2 .hint, details.card summary h2 .hint { font-weight: 400; font-size: 13px; margin-left: 4px; }
+.card h3 { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+.card h3 .hint { font-weight: 400; margin-left: 4px; }
+
+/* Tables */
+td { border-bottom-color: var(--row); }
+td.client { color: var(--muted); font-size: 12.5px; }
+td .pct { font-weight: 600; }
+td .cnt { color: var(--faint); font-size: 12px; margin-left: 4px; }
+
+/* Buttons in rows: smaller than a form button, the destructive ones tinted red. */
+.action-slot, table button.secondary { font-size: 12px; font-weight: 500; padding: 5px 9px; border-radius: 7px; background: #1b2531; border: 1px solid var(--border); color: var(--text); }
+.row-actions > .action-slot[data-action="disconnect"], .row-actions > span.action-slot:last-child { min-width: 92px; }
+button.danger, table button.secondary.danger, .action-slot[data-action="disconnect"] { color: #e5534b; background: rgba(248,81,73,.08); border-color: rgba(229,83,75,.4); }
+/* "Add as Manual" in the blue that means manual everywhere in both apps - red removes, blue adds. Laid over the
+   panel colour so it reads the same on a plain, green or orange row. */
+.action-slot[data-action="add-manual"] { color: #6aa8f0; background: linear-gradient(rgba(57,135,229,.12), rgba(57,135,229,.12)), var(--panel); border-color: rgba(57,135,229,.55); }
+/* On a green or orange row the see-through red mixes into pink; laid over the
+   panel colour instead, it is the same red as on a plain row. */
+tr:is(.row-delivered, .row-first-block, .row-focus) :is(button.danger, .action-slot[data-action="disconnect"]) {
+  background: linear-gradient(rgba(248,81,73,.08), rgba(248,81,73,.08)), var(--panel);
+  border-color: #673132;
+}
+/* "Show all" is a link under the table, not a button. */
+button.link { background: none; border: 0; padding: 10px 0 0; color: var(--muted); font-weight: 400; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+button.link:hover { color: var(--text); filter: none; }
+
+/* Switches for the two settings that switch a whole feature on or off. */
+.switch-label input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; margin: 0 4px 0 0;
+  width: 34px; height: 20px; border-radius: 999px; background: #2a3541; position: relative; flex: none; transition: background .15s;
+}
+.switch-label input[type="checkbox"]::after {
+  content: ""; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s;
+}
+.switch-label input[type="checkbox"]:checked { background: var(--accent); }
+.switch-label input[type="checkbox"]:checked::after { left: 17px; }
+.switch-label input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch-label input[type="checkbox"]:disabled { opacity: .5; }
+/* The per-pool "Enabled" box in the brand colour, on the dark scheme. */
+input[type="checkbox"] { accent-color: var(--accent); }
+
+select { background: #1b2531; color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 5px 9px; font: inherit; font-size: 12px; }
+#manual-add-input { min-width: 240px; }
+/* On a phone the status line goes under the title instead of squeezing it. */
+@media (max-width: 600px) {
+  .topbar { flex-wrap: wrap; gap: 4px 0; padding: 14px 16px; }
+  .status-pill { flex-basis: 100%; font-size: 12px; }
+}
+
+/* ---- Node settings card ---- */
+.node-form { display: block; }
+.node-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px 14px;
+  margin-bottom: 14px;
+}
+.node-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.node-field em { font-style: normal; color: var(--faint); }
+.node-field input, .node-field select {
+  background: #0f151b;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.node-field input:disabled { opacity: .55; }
+.node-wide { margin-bottom: 8px; max-width: 460px; }
+#node-result.ok { color: var(--good); }
+#node-result.error { color: var(--bad); }
+#node-result .node-line { display: block; margin-top: 3px; }

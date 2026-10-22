@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bitcoin Cash Lab</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="block-wave" class="block-wave" aria-hidden="true"></div>
+  <div id="action-toast" class="action-toast" role="status" aria-live="polite" hidden></div>
+
+  <header class="topbar">
+    <h1>Bitcoin Cash Lab</h1>
+    <a id="sibling-link" class="sibling-link" hidden target="peer-map">Peer Map &#8599;</a>
+    <div id="status" class="status-pill">loading…</div>
+  </header>
+
+  <main>
+    <div id="readonly-banner" class="service-banner" hidden role="status">Read-only test copy: this Bitcoin Cash Lab does not add, remove or disconnect any of BCHN's peers.</div>
+    <div id="service-banner" class="service-banner" hidden role="status"></div>
+    <div id="refresh-banner" class="service-banner" hidden role="status"></div>
+    <section class="card hero-card">
+      <div class="hero-grid">
+        <div class="hero-stat">
+          <div class="hero-l">Block Height</div>
+          <div class="hero-n" id="block-height-number">–</div>
+          <!-- Who mined it, when the block says so. Empty is a normal answer
+               and takes no room: not every miner is on a list, and not every
+               coinbase carries a name. -->
+          <div class="hero-sub" id="block-pool" hidden></div>
+        </div>
+        <div class="stat-grid" id="live-stats"></div>
+      </div>
+    </section>
+
+    <!--
+      Which node software this app reads from. Open by default only when the
+      connection is broken (app.js), so a working install shows one summary line.
+      No inline script or style anywhere in here: the CSP forbids both.
+    -->
+    <details class="card" id="node-card">
+      <summary><h2>Node <span id="node-summary" class="hint">checking…</span></h2></summary>
+      <p class="panel-note">
+        Which Bitcoin Cash node software to read blocks and peers from. Saving restarts this
+        app's background services (a few seconds); everything measured so far is kept.
+      </p>
+      <form id="node-form" class="node-form" autocomplete="off">
+        <label class="node-field node-wide">
+          <span>Node software</span>
+          <select id="node-profile"></select>
+        </label>
+        <p class="hint node-wide" id="node-profile-note"></p>
+        <div id="node-fields" class="node-fields">
+          <label class="node-field"><span>Host or container name</span>
+            <input type="text" id="node-host" spellcheck="false" placeholder="e.g. sslabs-bitcoin-cash-node_bitcoind_1" /></label>
+          <label class="node-field"><span>RPC port</span>
+            <input type="number" id="node-rpc-port" min="1" max="65535" /></label>
+          <label class="node-field"><span>RPC user</span>
+            <input type="text" id="node-rpc-user" spellcheck="false" autocomplete="off" /></label>
+          <label class="node-field"><span>RPC password</span>
+            <input type="password" id="node-rpc-pass" autocomplete="new-password" /></label>
+          <label class="node-field"><span>ZMQ host <em>(blank = same host)</em></span>
+            <input type="text" id="node-zmq-host" spellcheck="false" /></label>
+          <label class="node-field"><span>ZMQ block port</span>
+            <input type="number" id="node-zmq-port" min="1" max="65535" /></label>
+        </div>
+        <div class="inline-form">
+          <button type="button" id="node-detect" class="secondary">Find installed nodes</button>
+          <button type="button" id="node-test" class="secondary">Test</button>
+          <button type="submit" id="node-save">Save &amp; restart</button>
+        </div>
+      </form>
+      <div id="node-result" class="hint" role="status"></div>
+    </details>
+
+    <!--
+      Deliberately a plain section, not a <details> like the panels below.
+      This one already had its own top-10/show-all control, and having a
+      second, outer collapse on top of it meant the same word - "collapse" -
+      did two different things a few pixels apart: one narrowed the list, the
+      other made it vanish. Here, collapsing means going back to the top 10,
+      which is the state this card is for.
+    -->
+    <section class="card" id="live-peer-card">
+      <h2>Live Peer Ranking <span id="live-peer-count" class="hint"></span></h2>
+      <div class="table-wrap">
+        <table id="peer-table" class="peer-table">
+          <thead>
+            <tr>
+              <th class="col-address">Address</th>
+              <th class="col-client">Client</th>
+              <th class="col-status">Type</th>
+              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
+              <th class="col-ping">Ping</th>
+              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total">Total Time</th>
+              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="inline-form">
+        <button type="button" id="live-peer-limit-toggle" class="link" hidden></button>
+      </div>
+    </section>
+
+    <details class="card" open>
+      <summary><h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2></summary>
+      <!--
+        The single setting that most affects whether any of this measures what
+        it claims to. Over Tor the numbers are circuit latency, not peer
+        latency, and a .onion peer can never become manual at all - the port
+        probe has no address to dial. Said here rather than in the README
+        because this is the table where it shows.
+      -->
+      <p class="panel-note" id="outbound-note">
+        <strong>For the sharpest ranking, set BCHN's outgoing connections to clearnet only.</strong>
+        A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
+        app can dial back. Inbound connections over Tor or I2P are fine.
+      </p>
+      <div class="table-wrap">
+        <table id="outbound-peer-table" class="peer-table">
+          <thead>
+            <tr>
+              <th class="col-address">Address</th>
+              <th class="col-client">Client</th>
+              <th class="col-status">Type</th>
+              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
+              <th class="col-ping">Ping</th>
+              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total">Total Time</th>
+              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+
+    <!--
+      Its own section, sitting directly above the panel it writes into. It used
+      to live inside Live Peer Ranking, where it looked like a filter for that
+      table rather than what it is: the way you add a peer you found somewhere
+      else entirely.
+
+      Test answers "is anything listening there, and on which port" and changes
+      nothing at all - no row, no addnode, no disconnected session.
+    -->
+    <section class="card">
+      <h2>Add a Peer</h2>
+      <!--
+        The caution is not decoration: with the lock set by default on every
+        hand-added peer, all eight being protected is the likely end state
+        rather than an oddity, and it is the moment the loop quietly stops
+        finding anyone new.
+      -->
+      <p class="panel-note">
+        <strong>Add &amp; Keep</strong> adds a peer as manual and protects it from the rotation - the
+        lock in the list below switches that off. <strong>Caution:</strong> with all eight locked,
+        the rotation has nothing left to promote.
+      </p>
+      <form id="manual-add-form" class="inline-form">
+        <input
+          type="text"
+          id="manual-add-input"
+          aria-label="Peer IP address"
+          placeholder="IP address, e.g. 203.0.113.5"
+          title="A bare IP is probed on 8333, then 9333. Add an explicit :port to use only that one. IPv6 goes in brackets: [2001:db8::1]"
+          required
+        />
+        <button type="button" id="manual-test-button" class="secondary">Test</button>
+        <button type="submit">Add &amp; Keep</button>
+      </form>
+      <div id="manual-add-result" class="hint"></div>
+    </section>
+
+    <details class="card" open>
+      <summary><h2>Manual Peers <span id="manual-slots" class="hint"></span></h2></summary>
+      <div class="table-wrap">
+        <table id="manual-peer-table" class="peer-table">
+          <thead>
+            <tr>
+              <th class="col-address">Address</th>
+              <th class="col-client">Client</th>
+              <th class="col-status">Type</th>
+              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
+              <th class="col-ping">Ping</th>
+              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total">Total Time</th>
+              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="card" open>
+      <summary><h2>Peer Rotation</h2></summary>
+      <div class="inline-form">
+        <label class="switch-label" for="rotation-toggle">
+          <input type="checkbox" id="rotation-toggle" />
+          Automatically rotate outbound peers (recommended)
+        </label>
+      </div>
+      <!--
+        Under the toggle, not beside it, and as short sentences rather than one
+        block: this is the label on a switch, read before flipping it, not
+        documentation. The full rules live in the README - what belongs here is
+        what the switch does and what it costs you.
+      -->
+      <div class="rotation-hint">
+        <p>Every ~10 minutes, at most one promotion per pass:</p>
+        <ul>
+          <li>Makes the best peer that really delivers manual - into a free slot, or in place of a manual peer it clearly beats.</li>
+          <li>Drops an outbound peer that has been connected through 50 of the last 500 blocks without delivering one first. BCHN replaces it with a new random one.</li>
+          <li>Frees the slot of a manual peer that has gone offline. The better its record, the longer it keeps the slot first.</li>
+        </ul>
+        <p>A new slot holder is safe for its first 50 blocks. A peer that loses a slot is parked below, re-tested, and back as soon as it answers.</p>
+      </div>
+      <div id="parked-peers" class="parked-peers" hidden>
+        <h3>Parked <span class="hint">peers that lost their slot while offline - still being tested, back as soon as they answer</span></h3>
+        <div class="table-wrap">
+          <table id="parked-peer-table" class="peer-table">
+            <thead>
+              <tr>
+                <th class="col-address">Address</th>
+                <th class="col-pct">First %</th>
+                <th>Parked</th>
+                <th>Last tested</th>
+                <th>Failed tests</th>
+                <th>Kept until</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <h3>Rotation log <span id="rotation-log-count" class="hint"></span></h3>
+      <div class="table-wrap">
+        <table id="rotation-log-table" class="rotation-log-table">
+          <thead>
+            <tr>
+              <th class="col-time">When</th>
+              <th class="col-rot-action">Action</th>
+              <th class="col-address">Address</th>
+              <th class="col-pct">First %</th>
+              <th>Note</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button type="button" id="rotation-log-limit-toggle" class="link" hidden></button>
+    </details>
+
+    <section class="card">
+      <h2>Stratum Race</h2>
+      <div class="inline-form">
+        <label class="switch-label" for="stratum-toggle">
+          <input type="checkbox" id="stratum-toggle" />
+          Time how fast mining pools hand out work on a new block
+        </label>
+      </div>
+      <!--
+        One sentence, under the switch, for the same reason as the rotation's:
+        this is read before flipping it. What matters to somebody switching it
+        off is that it really does stop talking to other people's servers, and
+        that they are not throwing away what they already measured.
+      -->
+      <p class="hint" id="stratum-off-hint" hidden>
+        Off. No connection is made to any pool and nothing is measured. What was
+        measured so far is kept.
+      </p>
+      <div id="stratum-body">
+      <div class="inline-form">
+        <label class="hint" for="stratum-range">Range:</label>
+        <select id="stratum-range">
+          <option value="10">Last 10 blocks</option>
+          <option value="100">Last 100 blocks</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
+      <div class="inline-form" id="pool-found" hidden>
+        <span class="hint" id="pool-found-text"></span>
+        <button type="button" data-action="add-found-pools">Add to Stratum Race</button>
+        <button type="button" class="secondary" data-action="dismiss-found-pools">No thanks</button>
+      </div>
+      <div class="inline-form" id="pool-quickfill">
+        <span class="hint">Local Umbrel pool:</span>
+        <button type="button" class="secondary" data-action="fill-pool-template" data-template="solostrike-cash">LoneStrike Cash</button>
+        <button type="button" class="secondary" data-action="fill-pool-template" data-template="axebch">AxeBCH</button>
+      </div>
+      <form id="pool-add-form" class="inline-form">
+        <input type="text" id="pool-label" aria-label="Pool name" placeholder="Label" required />
+        <input
+          type="text"
+          id="pool-host"
+          aria-label="Pool host"
+          placeholder="Host"
+          title="A local Umbrel pool app isn't reached at umbrel.local - use its container name instead (e.g. sslabs-solostrike-cash_pool_1), same network as this app."
+          required
+        />
+        <input
+          type="number"
+          id="pool-port"
+          aria-label="Pool port"
+          placeholder="Port"
+          min="1"
+          max="65535"
+          title="The stratum port inside the pool's container, not the one your miner uses on your network. The buttons above fill it in."
+          required
+        />
+        <button type="submit">Add Pool</button>
+        <span id="pool-add-result" class="hint"></span>
+      </form>
+      <div class="table-wrap">
+        <table id="pool-table">
+          <thead>
+            <tr>
+              <th>Pool</th>
+              <th>Host:Port</th>
+              <th>Wins</th>
+              <th>Win %</th>
+              <th>Avg</th>
+              <th>Median</th>
+              <th>P90</th>
+              <th>Seen</th>
+              <th>Miss</th>
+              <th>Enabled</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      </div>
+    </section>
+
+    <!-- What the node sends and receives, per UTC day. -->
+    <details class="card" id="traffic-card" open>
+      <summary><h2>Traffic <span id="traffic-today" class="hint"></span></h2></summary>
+      <div id="traffic-totals" class="traffic-totals"></div>
+      <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
+      <p class="hint" id="traffic-note">Days are UTC days, updated hourly. Counted from BCHN's own byte counters while Bitcoin Cash Lab runs; a day with no bar was not measured.</p>
+    </details>
+
+    <!-- Closed by default and last on the page: nothing here is part of daily
+         use, and both buttons destroy data that cannot be recovered. -->
+    <details class="card" id="storage-card">
+      <summary><h2>Storage <span id="storage-total" class="hint"></span></h2></summary>
+
+      <div class="reset-group">
+        <h3>Peer measurement data <span id="reset-peers-size" class="hint"></span></h3>
+        <p class="hint">Block races, peer sessions, First %, the rotation log and the parked
+          peers. Your manual peers are kept — only their record starts again.</p>
+        <button type="button" id="reset-peers" class="secondary">Reset peer data…</button>
+        <div id="reset-peers-confirm" class="reset-confirm" hidden>
+          <p class="warn">This cannot be undone. <span id="reset-peers-detail"></span></p>
+          <button type="button" id="reset-peers-yes" class="danger">Yes, delete it</button>
+          <button type="button" id="reset-peers-no" class="secondary">Cancel</button>
+        </div>
+      </div>
+
+      <div class="reset-group">
+        <h3>Pool history <span id="reset-pools-size" class="hint"></span></h3>
+        <p class="hint">Every stratum race and latency measured so far. The pools themselves
+          stay configured — only their history goes.</p>
+        <button type="button" id="reset-pools" class="secondary">Reset pool history…</button>
+        <div id="reset-pools-confirm" class="reset-confirm" hidden>
+          <p class="warn">This cannot be undone. <span id="reset-pools-detail"></span></p>
+          <button type="button" id="reset-pools-yes" class="danger">Yes, delete it</button>
+          <button type="button" id="reset-pools-no" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </details>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

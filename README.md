@@ -1,3 +1,22 @@
+# Kyle's Community App Store
+
+Add this store in Umbrel: **App Store -> ... menu -> Community App Stores** -> `https://github.com/xmodem240/umbrel-community-app-store`
+
+| App | What it does | Source |
+|---|---|---|
+| **Bitaxe Tuner** (`kyle-bitaxe-tuner`) | Finds safe overclock profiles for a Bitaxe | `src/` |
+| **Bitcoin Cash Lab** (`kyle-bch-lab`) | Ranks which peers deliver new Bitcoin Cash blocks first; optional pool latency race. Node software selectable on the dashboard: LoneStrike Labs BCHN app, WillItMod AxeBCH (unverified), or any BCHN-compatible node | `bch-lab-src/` |
+
+Each app's image is built by its own workflow in `.github/workflows/` and published to
+`ghcr.io/xmodem240/`. A new package must be set to **public** in GitHub -> Packages once, or Umbrel
+cannot pull it.
+
+Bitcoin Cash Lab is a port of the MIT-licensed [Bitcoin Lab](https://github.com/benunskilled/bitcoin-lab)
+by benunskilled. Its own docs are in `bch-lab-src/` (start with `docs/bch-differences.md`, which lists what is
+still unverified).
+
+---
+
 # Bitaxe Tuner: Umbrel community app
 
 Automatically sweeps frequency and core voltage on a Bitaxe (AxeOS) and reports which settings are

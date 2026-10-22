@@ -1,0 +1,316 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bitcoinlab-rollup-'));
+process.env.SQLITE_PATH = path.join(tmpDir, 'test.db');
+process.env.DATA_DIR = tmpDir;
+process.env.LOG_LEVEL = 'error';
+
+const db = require('../src/lib/db');
+const queries = require('../src/lib/queries');
+const peerRanking = require('../src/lib/queries/peer-ranking');
+
+test.before(() => {
+  db.open();
+});
+
+function aggregateFromRawRows() {
+  return db.instance
+    .prepare(
+      `SELECT peer_id AS peerId, COUNT(*) AS eligible, COALESCE(SUM(first), 0) AS first
+       FROM relay_observation GROUP BY peer_id ORDER BY peer_id`,
+    )
+    .all();
+}
+
+function rollupRows() {
+  return db.instance
+    .prepare(`SELECT peer_id AS peerId, eligible, first FROM peer_relay_stats ORDER BY peer_id`)
+    .all();
+}
+
+function assertRollupMatchesRawRows(context) {
+  assert.deepEqual(rollupRows(), aggregateFromRawRows(), `rollup drifted from relay_observation: ${context}`);
+}
+
+test('the rollup tracks inserts into relay_observation exactly', () => {
+  // peerRanking() reads peer_relay_stats instead of aggregating the (never
+  // pruned, permanently growing) relay_observation table on every request. A
+  // summary that can silently drift from its source is worse than no summary,
+  // so it is maintained by triggers on the table itself - this asserts the
+  // invariant rather than trusting any particular caller to remember.
+  const a = db.getOrCreatePeer('198.51.100.1:8333');
+  const b = db.getOrCreatePeer('198.51.100.2:8333');
+  // peerRanking() reports the peers that are connected or manual, so the
+  // fixture needs the open session any peer with relay history really has.
+  const openSession = db.instance.prepare(
+    'INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, ?, ?, ?)',
+  );
+  openSession.run(a.id, 'outbound', 'outbound-full-relay', Date.now() - 3600000);
+  openSession.run(b.id, 'outbound', 'outbound-full-relay', Date.now() - 3600000);
+  const insertRace = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)');
+  const insertObs = db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)');
+
+  for (let i = 0; i < 12; i++) {
+    const raceId = insertRace.run(`rollup-block-${i}`, Date.now()).lastInsertRowid;
+    insertObs.run(raceId, a.id, i < 9 ? 1 : 0);
+    insertObs.run(raceId, b.id, 0);
+  }
+
+  assertRollupMatchesRawRows('after inserts');
+  const ranking = queries.peerRanking();
+  const rowA = ranking.find((p) => p.address === '198.51.100.1:8333');
+  assert.equal(rowA.eligible, 12);
+  assert.equal(rowA.first, 9);
+  assert.equal(rowA.firstPct, 75);
+});
+
+test('the rollup follows deletes and updates too', () => {
+  const raceId = db.instance.prepare('SELECT id FROM relay_race ORDER BY id LIMIT 1').get().id;
+  db.instance.prepare('UPDATE relay_observation SET first = 0 WHERE race_id = ?').run(raceId);
+  assertRollupMatchesRawRows('after update');
+  db.instance.prepare('DELETE FROM relay_observation WHERE race_id = ?').run(raceId);
+  assertRollupMatchesRawRows('after delete');
+});
+
+/**
+ * The recent window has to cost the window, not the history.
+ *
+ * relay_observation is deliberately never pruned, so the only affordable plan
+ * for "the last five hundred races" is a range search down its primary key,
+ * which begins with race_id. SQLite will not pick that on its own while any
+ * index starts with peer_id: the GROUP BY arrives pre-sorted that way, which
+ * saves a temporary b-tree and pays for it by walking every row the node has
+ * ever recorded. Measured on two million observations, that preference was 3.7
+ * seconds against 32 milliseconds - several times a minute, and growing for as
+ * long as the node runs.
+ *
+ * So assert the plan, the way first-ties.test.js asserts its own. The answer is
+ * identical either way, which is exactly why nothing else would catch it.
+ */
+test('the recent window is a race_id range search, not a walk through every peer', () => {
+  const plan = db.instance
+    .prepare('EXPLAIN QUERY PLAN ' + peerRanking.RECENT_RELAY_STATS_SQL)
+    .all(500)
+    .map((r) => r.detail)
+    .join(' ');
+
+  assert.match(plan, /SEARCH relay_observation USING INDEX sqlite_autoindex_relay_observation_1 \(race_id>\?\)/);
+  assert.doesNotMatch(plan, /SCAN relay_observation/, 'a full pass over the table is the thing being ruled out');
+});
+
+test('rebuildRelayStats restores the invariant from the raw rows alone', () => {
+  db.instance.prepare('UPDATE peer_relay_stats SET eligible = 999, first = 999').run();
+  db.rebuildRelayStats();
+  assertRollupMatchesRawRows('after rebuild');
+});
+
+test('the one-time migrations really do not run twice', () => {
+  // This used to assert a hardcoded list of migration flag names, which is a
+  // test of the list, not of the guard: with `if (done) return` removed from
+  // migrate(), it stayed green. What hangs on that guard is not academic -
+  // stratum_history_reset_v1_12_0 does DELETE FROM stratum_observation, so a
+  // regression there would wipe the user's entire race history on every single
+  // container restart, silently, with this test still passing.
+  //
+  // So: put data in the way of each destructive migration, re-run them, and
+  // assert the data is still there.
+  const poolId = db.instance
+    .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at)
+              VALUES ('Migration Guard', 'guard.example', 3333, 1, 0, ?)`)
+    .run(Date.now()).lastInsertRowid;
+  const raceId = db.instance
+    .prepare(`INSERT INTO stratum_race (prevhash, created_at) VALUES ('migration-guard-race', ?)`)
+    .run(Date.now()).lastInsertRowid;
+  db.instance
+    .prepare(`INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, 42, 1)`)
+    .run(raceId, poolId);
+
+  const flagsBefore = db.instance
+    .prepare("SELECT key, value FROM meta WHERE key LIKE 'migration:%' ORDER BY key").all();
+  assert.ok(flagsBefore.length > 0, 'migrations must record that they ran at all');
+
+  db.runMigrations();
+
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race WHERE prevhash = ?').get('migration-guard-race').n,
+    1,
+    'a second migration pass must not clear the stratum history',
+  );
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_observation WHERE race_id = ?').get(raceId).n,
+    1,
+  );
+  assert.deepEqual(
+    db.instance.prepare("SELECT key, value FROM meta WHERE key LIKE 'migration:%' ORDER BY key").all(),
+    flagsBefore,
+    'and must not re-stamp the flags either - the timestamps are the evidence it ran once',
+  );
+
+  // This file shares one database across its tests, and the percentile tests
+  // below aggregate over every stratum row present. Leave the fixture as found.
+  db.instance.prepare('DELETE FROM stratum_observation WHERE race_id = ?').run(raceId);
+  db.instance.prepare('DELETE FROM stratum_race WHERE id = ?').run(raceId);
+  db.instance.prepare('DELETE FROM stratum_pool WHERE id = ?').run(poolId);
+});
+
+test('median and P90 match the previous implementation on every range', () => {
+  // The percentile computation moved out of JavaScript. It has to pick exactly
+  // the same sample as before, so the previous implementation is the oracle.
+  function previousPercentile(sortedAsc, p) {
+    if (!sortedAsc.length) return null;
+    return sortedAsc[Math.min(sortedAsc.length - 1, Math.floor(p * sortedAsc.length))];
+  }
+
+  const insertRace = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)');
+  const insertObs = db.instance.prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)');
+  const poolIds = db.instance.prepare('SELECT id FROM stratum_pool ORDER BY id').all().map((r) => r.id);
+  const byPool = new Map(poolIds.map((id) => [id, []]));
+
+  let seed = 7;
+  const nextLatency = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return Math.round((seed % 90000) / 100) / 10;
+  };
+
+  const raceIds = [];
+  for (let r = 0; r < 40; r++) {
+    const raceId = insertRace.run(`pct-${r}`, Date.now() - (40 - r) * 1000).lastInsertRowid;
+    raceIds.push(raceId);
+    poolIds.forEach((poolId, index) => {
+      // A different miss pattern per pool, so sample counts differ and the
+      // rounding edges of the percentile index actually get exercised.
+      if ((r + index) % 5 === 0) {
+        insertObs.run(raceId, poolId, null, null);
+        return;
+      }
+      const latency = nextLatency();
+      byPool.get(poolId).push({ raceId, latency });
+      insertObs.run(raceId, poolId, latency, index + 1);
+    });
+  }
+
+  for (const range of ['10', '100', 'all']) {
+    const limit = range === 'all' ? raceIds.length : Number(range);
+    const inRange = new Set(raceIds.slice(-limit));
+    for (const pool of queries.stratumRanking(range)) {
+      const samples = (byPool.get(pool.id) || [])
+        .filter((s) => range === 'all' || inRange.has(s.raceId))
+        .map((s) => s.latency)
+        .sort((x, y) => x - y);
+      assert.equal(pool.medianMs, previousPercentile(samples, 0.5), `median mismatch for pool ${pool.id}, range ${range}`);
+      assert.equal(pool.p90Ms, previousPercentile(samples, 0.9), `p90 mismatch for pool ${pool.id}, range ${range}`);
+    }
+  }
+});
+
+test('deleting a pool also removes races it was the only participant in', () => {
+  // Those races have no observations left, but still occupied slots in the
+  // "last N races" windows - so the range selector quietly showed fewer data
+  // points than it claimed.
+  const poolId = db.instance
+    .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES ('Solo Only', 'solo.example', 3333, 1, 0, ?)`)
+    .run(Date.now()).lastInsertRowid;
+  const raceId = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)').run('lonely-race', Date.now()).lastInsertRowid;
+  db.instance.prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, 0, 1)').run(raceId, poolId);
+
+  queries.deletePool(poolId);
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race WHERE id = ?').get(raceId).n, 0);
+  const orphans = db.instance
+    .prepare('SELECT COUNT(*) AS n FROM stratum_race WHERE id NOT IN (SELECT DISTINCT race_id FROM stratum_observation)')
+    .get().n;
+  assert.equal(orphans, 0, 'no race may be left without observations');
+});
+
+test('offlineTrustedPeers reports only trusted peers with no open session', () => {
+  const now = Date.now();
+  const online = db.getOrCreatePeer('203.0.113.10:8333');
+  const offline = db.getOrCreatePeer('203.0.113.11:8333');
+  const neverSeen = '203.0.113.12:8333';
+  const trust = db.instance.prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)');
+  trust.run('203.0.113.10:8333', 'still up', now);
+  trust.run('203.0.113.11:8333', 'dropped', now);
+  trust.run(neverSeen, 'never connected', now);
+
+  const session = db.instance.prepare(
+    'INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)',
+  );
+  session.run(online.id, 'outbound', 'manual', now - 60000, null);
+  session.run(offline.id, 'outbound', 'manual', now - 7200000, now - 3600000);
+
+  const result = queries.offlineTrustedPeers();
+  const addresses = result.map((r) => r.address).sort();
+  assert.deepEqual(addresses, ['203.0.113.11:8333', '203.0.113.12:8333']);
+
+  const dropped = result.find((r) => r.address === '203.0.113.11:8333');
+  assert.ok(dropped.offlineSinceMs >= 3600000, 'reports how long it has been gone');
+  const never = result.find((r) => r.address === neverSeen);
+  assert.equal(never.offlineSinceMs, null, 'a peer that never connected has no offline duration');
+});
+
+/**
+ * The home-screen widget and the dashboard have to name the same peer.
+ *
+ * They did not, for three versions: the ranking moved to the recent window in
+ * 1.16.0 and the widget kept reading the raw lifetime rate, so a peer that had
+ * been excellent for a month and mediocre for the last few days stayed on the
+ * home screen at its old average. The failure is quiet by nature - both numbers
+ * look plausible on their own, and you only catch it by holding them side by
+ * side, which is exactly what this does.
+ */
+test('the widget names the same best peer as the ranking, on the window and not on a lifetime average', () => {
+  db.instance.exec(`
+    DELETE FROM relay_observation;
+    DELETE FROM relay_race;
+    DELETE FROM peer_relay_stats;
+    DELETE FROM peer_session;
+    DELETE FROM peer;
+  `);
+
+  const faded = db.getOrCreatePeer('198.51.100.10:8333');
+  const rising = db.getOrCreatePeer('198.51.100.11:8333');
+  const openSession = db.instance.prepare(
+    'INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, ?, ?, ?)',
+  );
+  openSession.run(faded.id, 'outbound', 'outbound-full-relay', Date.now() - 3600000);
+  openSession.run(rising.id, 'outbound', 'outbound-full-relay', Date.now() - 3600000);
+
+  const insertRace = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)');
+  const insertObs = db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)');
+
+  // 700 blocks. The faded peer takes the first 400, the rising one the last
+  // 300. The window is 500 wide, so it covers all 300 of the rising peer's and
+  // 200 of the faded peer's - which makes the two rules disagree on purpose:
+  // over their lifetimes the faded peer leads 400 to 300, over the window the
+  // rising one leads 300 to 200.
+  for (let i = 0; i < 700; i++) {
+    const raceId = insertRace.run(`widget-block-${i}`, Date.now() - (700 - i) * 1000).lastInsertRowid;
+    const early = i < 400;
+    insertObs.run(raceId, faded.id, early ? 1 : 0);
+    insertObs.run(raceId, rising.id, early ? 0 : 1);
+  }
+
+  const lifetime = db.instance
+    .prepare('SELECT peer_id AS id, first, eligible FROM peer_relay_stats ORDER BY (1.0 * first / eligible) DESC')
+    .all();
+  assert.equal(lifetime[0].id, faded.id, 'the old rule would have named the faded peer - that is the trap');
+
+  const ranking = queries.peerRanking();
+  const best = queries.widgetStats().bestPeer;
+
+  assert.equal(ranking[0].address, rising.address, 'the ranking puts the peer delivering now on top');
+  assert.equal(best.address, ranking[0].address, 'and the widget names that same peer');
+
+  // And reports the window rate (300 of 500), not the lifetime average the old
+  // query would have shown for this peer (300 of 700, 42.9%).
+  assert.ok(
+    best.firstPct > 55 && best.firstPct < 65,
+    `expected the window rate near 60%, got ${best.firstPct.toFixed(1)}%`,
+  );
+});
