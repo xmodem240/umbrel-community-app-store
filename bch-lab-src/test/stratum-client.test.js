@@ -90,11 +90,13 @@ test('emits authorizeResult for the mining.authorize response (id 2)', () => {
   conn.on('authorizeResult', (payload) => { captured = payload; });
 
   conn._handleChunk(Buffer.from(`${JSON.stringify({ id: 2, result: true, error: null })}\n`), process.hrtime.bigint());
-  assert.deepEqual(captured, { ok: true, error: null });
+  assert.deepEqual(captured, { ok: true, error: null, rejections: 0, retryInMs: null });
 
   conn._handleChunk(Buffer.from(`${JSON.stringify({ id: 2, result: false, error: [24, 'unauthorized-worker', null] })}\n`), process.hrtime.bigint());
   assert.equal(captured.ok, false);
   assert.ok(captured.error);
+  assert.equal(captured.rejections, 1);
+  assert.ok(captured.retryInMs > 0);
 });
 
 test('a mining.notify whose prevhash is not a block hash is refused', () => {
