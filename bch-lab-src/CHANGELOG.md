@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- New **Logs** card on the dashboard: every service's recent log lines (block races recorded, peers, pool
+  timings, warnings) with service / level / search filters, auto-refresh and Copy. Each service keeps a
+  rotated log file under `/data/logs` (about 8 MB at most); not shown on a read-only copy.
+
 ## 0.2.0
 
 - **Fix: works on BCHN.** BCHN's `getpeerinfo` has no `last_block`, so no peer was ever credited

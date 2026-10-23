@@ -352,6 +352,32 @@
       <p class="hint" id="traffic-note">Days are UTC days, updated hourly. Counted from BCHN's own byte counters while Bitcoin Cash Lab runs; a day with no bar was not measured.</p>
     </details>
 
+    <details class="card" id="logs-card">
+      <summary><h2>Logs <span id="logs-summary" class="hint"></span></h2></summary>
+      <p class="panel-note">
+        What each background service has been doing: every block race recorded, peers seen,
+        pool timings and any warnings. Newest at the bottom. Kept for a day or two.
+      </p>
+      <div class="logs-controls">
+        <label>Service
+          <select id="logs-service"><option value="all">All</option></select>
+        </label>
+        <label>Show
+          <select id="logs-level">
+            <option value="info" selected>Info and up</option>
+            <option value="warn">Warnings and errors</option>
+            <option value="error">Errors only</option>
+            <option value="debug">Everything</option>
+          </select>
+        </label>
+        <label>Search <input type="search" id="logs-q" placeholder="e.g. race recorded" maxlength="100"></label>
+        <label class="logs-auto"><input type="checkbox" id="logs-auto" checked> Auto-refresh</label>
+        <button type="button" id="logs-refresh" class="secondary">Refresh</button>
+        <button type="button" id="logs-copy" class="secondary">Copy</button>
+      </div>
+      <pre id="logs-view" class="logs-view" tabindex="0">Open this card to load the logs.</pre>
+    </details>
+
     <!-- Closed by default and last on the page: nothing here is part of daily
          use, and both buttons destroy data that cannot be recovered. -->
     <details class="card" id="storage-card">

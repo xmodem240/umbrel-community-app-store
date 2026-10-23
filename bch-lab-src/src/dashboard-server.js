@@ -29,6 +29,7 @@ const localPools = require('./lib/local-pools');
 const health = require('./lib/health');
 const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
+const logStore = require('./lib/log-store');
 const { validatePool } = require('./lib/validate');
 const { manualAddPeer, probePeer, hostFromAddress } = require('./lib/manual-peer');
 const peerRotation = require('./lib/peer-rotation');
@@ -91,7 +92,7 @@ const SECURITY_HEADERS = {
 
 const READ_ONLY_BLOCKED = new Set([
   '/api/peers/untrust', '/api/peers/manual-add', '/api/peers/add-manual', '/api/peers/disconnect', '/api/rotation/toggle',
-  '/api/node',
+  '/api/node', '/api/logs',
 ]);
 
 function sendJson(res, status, data) {
@@ -630,6 +631,20 @@ async function router(req, res, pathname, url) {
       readOnly: config.readOnly,
       peerMapLinkPort: config.peerMapLinkPort || undefined,
     });
+  }
+
+  // ---- Logs ------------------------------------------------------------
+  // Every service's recent lines, from the files lib/log-store.js keeps.
+  if (req.method === 'GET' && pathname === '/api/logs') {
+    // Lines can carry hostnames and peer addresses; a read-only public copy has no business showing them.
+    if (config.readOnly) return sendJson(res, 403, { error: 'Logs are not shown on a read-only test copy.' });
+    const u = new URL(req.url, 'http://x');
+    return sendJson(res, 200, logStore.readRecent({
+      service: u.searchParams.get('service') || 'all',
+      level: u.searchParams.get('level') || 'info',
+      limit: u.searchParams.get('limit') || 300,
+      q: (u.searchParams.get('q') || '').slice(0, 100),
+    }));
   }
 
   // ---- Which node this app reads from -------------------------------------

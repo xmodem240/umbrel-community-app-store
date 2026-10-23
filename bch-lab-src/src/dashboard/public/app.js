@@ -1882,3 +1882,90 @@ startEventStream();
     api('/api/node').then((s) => { state.connection = s.connection; state.active = s.active; renderSummary(); }).catch(() => {});
   }, 60000);
 }());
+
+// ---- Logs card ---------------------------------------------------------------
+// Fetches only while the card is open, so a closed card costs nothing.
+(function logsCard() {
+  const card = document.getElementById('logs-card');
+  if (!card) return;
+  const $ = (id) => document.getElementById(id);
+  const view = $('logs-view');
+  const serviceSel = $('logs-service');
+  let timer = null;
+  let loading = false;
+
+  function render(lines) {
+    // Stay pinned to the newest line only if the reader was already at the bottom.
+    const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40;
+    view.textContent = '';
+    if (!lines.length) {
+      view.textContent = 'No log lines match.';
+      return;
+    }
+    for (const l of lines) {
+      const row = document.createElement('span');
+      row.className = `log-line log-${String(l.level).toLowerCase()}`;
+      const time = l.ts ? l.ts.slice(5, 19).replace('T', ' ') : '';
+      row.textContent = `${time} ${l.level.padEnd(5)} ${l.scope && l.scope !== l.service ? `${l.service}/${l.scope}` : l.service} ${l.message}\n`;
+      view.appendChild(row);
+    }
+    if (atBottom) view.scrollTop = view.scrollHeight;
+  }
+
+  async function load() {
+    if (loading || !card.open) return;
+    loading = true;
+    try {
+      const params = new URLSearchParams({
+        service: serviceSel.value, level: $('logs-level').value, q: $('logs-q').value.trim(), limit: '400',
+      });
+      const data = await api(`/api/logs?${params}`);
+      const keep = serviceSel.value;
+      const wanted = ['all', ...data.services];
+      if (wanted.join() !== [...serviceSel.options].map((o) => o.value).join()) {
+        serviceSel.textContent = '';
+        for (const s of wanted) {
+          const opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s === 'all' ? 'All' : s;
+          serviceSel.appendChild(opt);
+        }
+        serviceSel.value = wanted.includes(keep) ? keep : 'all';
+      }
+      render(data.lines);
+      $('logs-summary').textContent = `${data.lines.length} lines`;
+    } catch (err) {
+      view.textContent = `Could not load logs: ${err.message}`;
+    } finally {
+      loading = false;
+    }
+  }
+
+  function syncTimer() {
+    clearInterval(timer);
+    timer = null;
+    if (card.open && $('logs-auto').checked) timer = setInterval(load, 10000);
+  }
+
+  card.addEventListener('toggle', () => { syncTimer(); load(); });
+  $('logs-auto').addEventListener('change', syncTimer);
+  $('logs-refresh').addEventListener('click', load);
+  serviceSel.addEventListener('change', load);
+  $('logs-level').addEventListener('change', load);
+  let debounce = null;
+  $('logs-q').addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(load, 300); });
+  $('logs-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(view.textContent);
+      $('logs-summary').textContent = 'copied';
+    } catch {
+      // Plain http on a LAN address has no clipboard API: select the text instead.
+      const range = document.createRange();
+      range.selectNodeContents(view);
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      $('logs-summary').textContent = 'selected - press copy on your device';
+    }
+  });
+})();

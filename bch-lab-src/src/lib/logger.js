@@ -2,6 +2,7 @@
 
 const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
 const config = require('./config');
+const logStore = require('./log-store');
 const currentLevel = LEVELS[config.logLevel] ?? LEVELS.info;
 
 function make(scope) {
@@ -9,9 +10,12 @@ function make(scope) {
     if (LEVELS[level] > currentLevel) return;
     const ts = new Date().toISOString();
     const suffix = extra !== undefined ? ` ${JSON.stringify(extra)}` : '';
-    // Plain stdout/stderr - Docker/Umbrel capture this, no file logging.
+    // stdout/stderr for Docker/Umbrel, and a copy on the data volume so the
+    // dashboard's Logs card can show every service's lines (lib/log-store.js).
     const stream = level === 'error' ? console.error : console.log;
-    stream(`${ts} [${level.toUpperCase()}] [${scope}] ${msg}${suffix}`);
+    const text = `${ts} [${level.toUpperCase()}] [${scope}] ${msg}${suffix}`;
+    stream(text);
+    logStore.append(text);
   };
   return {
     error: (msg, extra) => line('error', msg, extra),

@@ -61,3 +61,7 @@ npm test
 ## Licence
 
 MIT. Original work (c) benunskilled; see [LICENSE](LICENSE).
+
+## Logs
+
+The dashboard's **Logs** card shows what each background service is doing. The same lines are in `/data/logs/*.log` and, as before, in `docker logs`.
