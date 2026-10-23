@@ -1,0 +1,716 @@
+{
+ "source": "bitaxeorg/ESP-Miner main/device_config.h @ bb4fd0c",
+ "boards": {
+  "2.2": {
+   "family": "Max",
+   "asic": "BM1397",
+   "default_freq": 425,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575,
+    600
+   ],
+   "default_volt": 1400,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300,
+    1350,
+    1400,
+    1450,
+    1500
+   ],
+   "small_cores": 672,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "102": {
+   "family": "Max",
+   "asic": "BM1397",
+   "default_freq": 425,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575,
+    600
+   ],
+   "default_volt": 1400,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300,
+    1350,
+    1400,
+    1450,
+    1500
+   ],
+   "small_cores": 672,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "0.11": {
+   "family": "Ultra",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "201": {
+   "family": "Ultra",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "202": {
+   "family": "Ultra",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "203": {
+   "family": "Ultra",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "204": {
+   "family": "Ultra",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "205": {
+   "family": "Ultra",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "207": {
+   "family": "Ultra",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 1,
+   "gauge_max_power": 25,
+   "nominal_v": 5
+  },
+  "302": {
+   "family": "Hex",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 6,
+   "gauge_max_power": 90,
+   "nominal_v": 12
+  },
+  "303": {
+   "family": "Hex",
+   "asic": "BM1366",
+   "default_freq": 485,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 894,
+   "chips": 6,
+   "gauge_max_power": 90,
+   "nominal_v": 12
+  },
+  "400": {
+   "family": "Supra",
+   "asic": "BM1368",
+   "default_freq": 490,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    490,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1166,
+   "volt_options": [
+    1100,
+    1150,
+    1166,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 1276,
+   "chips": 1,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "401": {
+   "family": "Supra",
+   "asic": "BM1368",
+   "default_freq": 490,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    490,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1166,
+   "volt_options": [
+    1100,
+    1150,
+    1166,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 1276,
+   "chips": 1,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "402": {
+   "family": "Supra",
+   "asic": "BM1368",
+   "default_freq": 490,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    490,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1166,
+   "volt_options": [
+    1100,
+    1150,
+    1166,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 1276,
+   "chips": 1,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "403": {
+   "family": "Supra",
+   "asic": "BM1368",
+   "default_freq": 490,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    490,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1166,
+   "volt_options": [
+    1100,
+    1150,
+    1166,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 1276,
+   "chips": 1,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "600": {
+   "family": "Gamma",
+   "asic": "BM1370",
+   "default_freq": 525,
+   "freq_options": [
+    400,
+    490,
+    525,
+    550,
+    600,
+    625,
+    690
+   ],
+   "default_volt": 1150,
+   "volt_options": [
+    1000,
+    1060,
+    1100,
+    1150,
+    1200,
+    1250
+   ],
+   "small_cores": 2040,
+   "chips": 1,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "601": {
+   "family": "Gamma",
+   "asic": "BM1370",
+   "default_freq": 525,
+   "freq_options": [
+    400,
+    490,
+    525,
+    550,
+    600,
+    625,
+    690
+   ],
+   "default_volt": 1150,
+   "volt_options": [
+    1000,
+    1060,
+    1100,
+    1150,
+    1200,
+    1250
+   ],
+   "small_cores": 2040,
+   "chips": 1,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "602": {
+   "family": "Gamma",
+   "asic": "BM1370",
+   "default_freq": 525,
+   "freq_options": [
+    400,
+    490,
+    525,
+    550,
+    600,
+    625,
+    690
+   ],
+   "default_volt": 1150,
+   "volt_options": [
+    1000,
+    1060,
+    1100,
+    1150,
+    1200,
+    1250
+   ],
+   "small_cores": 2040,
+   "chips": 1,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "603": {
+   "family": "Gamma",
+   "asic": "BM1370",
+   "default_freq": 525,
+   "freq_options": [
+    400,
+    490,
+    525,
+    550,
+    600,
+    625,
+    690
+   ],
+   "default_volt": 1150,
+   "volt_options": [
+    1000,
+    1060,
+    1100,
+    1150,
+    1200,
+    1250
+   ],
+   "small_cores": 2040,
+   "chips": 1,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "650": {
+   "family": "GammaDuo",
+   "asic": "BM1370",
+   "default_freq": 400,
+   "freq_options": [
+    350,
+    375,
+    380,
+    400,
+    410
+   ],
+   "default_volt": 1150,
+   "volt_options": [
+    1000,
+    1060,
+    1100,
+    1150,
+    1200,
+    1250
+   ],
+   "small_cores": 2040,
+   "chips": 2,
+   "gauge_max_power": 40,
+   "nominal_v": 5
+  },
+  "701": {
+   "family": "SupraHex",
+   "asic": "BM1368",
+   "default_freq": 490,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    490,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1166,
+   "volt_options": [
+    1100,
+    1150,
+    1166,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 1276,
+   "chips": 6,
+   "gauge_max_power": 120,
+   "nominal_v": 12
+  },
+  "702": {
+   "family": "SupraHex",
+   "asic": "BM1368",
+   "default_freq": 490,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    490,
+    500,
+    525,
+    550,
+    575
+   ],
+   "default_volt": 1166,
+   "volt_options": [
+    1100,
+    1150,
+    1166,
+    1200,
+    1250,
+    1300
+   ],
+   "small_cores": 1276,
+   "chips": 6,
+   "gauge_max_power": 120,
+   "nominal_v": 12
+  },
+  "801": {
+   "family": "GammaTurbo",
+   "asic": "BM1370",
+   "default_freq": 525,
+   "freq_options": [
+    400,
+    490,
+    525,
+    550,
+    600,
+    625,
+    690
+   ],
+   "default_volt": 1150,
+   "volt_options": [
+    1000,
+    1060,
+    1100,
+    1150,
+    1200,
+    1250
+   ],
+   "small_cores": 2040,
+   "chips": 2,
+   "gauge_max_power": 60,
+   "nominal_v": 12
+  },
+  "1201": {
+   "family": "NajaDuo",
+   "asic": "BM1372/BM1373",
+   "default_freq": 327,
+   "freq_options": [
+    327,
+    350,
+    375,
+    380,
+    400,
+    410
+   ],
+   "default_volt": 1000,
+   "volt_options": [
+    1000,
+    1060,
+    1100,
+    1150,
+    1200,
+    1250
+   ],
+   "small_cores": 6725,
+   "chips": 2,
+   "gauge_max_power": 60,
+   "nominal_v": 12
+  },
+  "1300": {
+   "family": "GammaHex",
+   "asic": "BM1370",
+   "default_freq": 690,
+   "freq_options": [
+    400,
+    490,
+    525,
+    550,
+    600,
+    625,
+    690
+   ],
+   "default_volt": 1200,
+   "volt_options": [
+    1000,
+    1060,
+    1100,
+    1150,
+    1200,
+    1250
+   ],
+   "small_cores": 2040,
+   "chips": 6,
+   "gauge_max_power": 180,
+   "nominal_v": 12
+  }
+ }
+}

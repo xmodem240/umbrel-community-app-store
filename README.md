@@ -32,6 +32,18 @@ actually stable, with three recommended profiles: **max hashrate**, **best effic
    stable frequency. It ends when more voltage stops helping, or at your max frequency/voltage.
 5. Original settings are restored on finish, on **Stop**, on any error, and on app restart/crash.
 
+## Model recognition
+**Detect** identifies the Bitaxe and fills in its factory settings: the run starts at the factory
+frequency/core voltage, core voltage is capped at the top of the firmware's own voltage options, and
+the input-voltage window follows the board's nominal supply (5 V or 12 V). The profile comes from the
+miner itself (`/api/system/asic`, ESP-Miner 2.x+) or, on older firmware, from `src/boards.json`, a
+table of all 25 official board versions generated from ESP-Miner's `main/device_config.h` by
+`tests/gen_boards.py`. Unknown boards fall back to generic 5 V / 12 V limits.
+
+The firmware's `maxPower` is only AxeOS's power-gauge scale and isn't enforced, so it is used as a
+floor for the power limit, never as the only limit. On multi-chip boards the temperature limit uses
+the hottest chip (`temp`/`temp2`), and a run stops if the firmware enters overheat mode.
+
 ## While it runs
 - A sticky status bar shows a live heartbeat, the current point and phase (apply, warm-up, measure),
   a progress bar with countdown, and run time.

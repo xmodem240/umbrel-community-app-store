@@ -24,8 +24,15 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
-VERSION = "0.2.5"
+VERSION = "0.3.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
+# Factory defaults per board, generated from ESP-Miner's device_config.h (see tests/gen_boards.py).
+# Used only when the miner's firmware is too old to report its own profile via /api/system/asic.
+try:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "boards.json")) as _f:
+        BOARDS = json.load(_f)
+except (OSError, ValueError):
+    BOARDS = {"source": "", "boards": {}}
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 MAX_SAMPLES = 6000
@@ -157,6 +164,17 @@ class Bitaxe:
                            timeout=HTTP_TIMEOUT)
         r.raise_for_status()
 
+    def asic(self):
+        """Factory profile reported by the miner itself (ESP-Miner 2.x+). None on older firmware."""
+        try:
+            r = requests.get(self.base + "/api/system/asic", timeout=HTTP_TIMEOUT)
+            if r.status_code != 200:
+                return None
+            d = r.json()
+            return d if isinstance(d, dict) and d.get("defaultFrequency") else None
+        except (requests.RequestException, ValueError):
+            return None
+
     def restart(self):
         try:
             requests.post(self.base + "/api/system/restart", timeout=HTTP_TIMEOUT)
@@ -180,6 +198,7 @@ class Tuner:
             "run": {"status": "idle", "message": "", "phase": "", "current": None,
                     "started": None, "finished": None},
             "device": None,
+            "profile": None,
             "original": None,
             "results": [],
             "telemetry": None,
@@ -404,7 +423,8 @@ class Tuner:
         i = self.dev.info()
         return {
             "t": time.time(), "hash": float(i.get("hashRate") or 0),
-            "temp": i.get("temp"), "vr": i.get("vrTemp"), "power": i.get("power"),
+            "temp": hottest_chip(i), "temp2": i.get("temp2"), "vr": i.get("vrTemp"), "power": i.get("power"),
+            "overheat": i.get("overheat_mode"),
             "vin": i.get("voltage"), "err": i.get("errorPercentage"),
             "acc": i.get("sharesAccepted") or 0, "rej": i.get("sharesRejected") or 0,
             "fan": i.get("fanspeed") if i.get("fanspeed") is not None else i.get("fanrpm"),
@@ -415,6 +435,8 @@ class Tuner:
 
     def _hard_limit(self, s):
         c = self.state["config"]
+        if s.get("overheat") in (1, True):
+            return "thermal", "the miner's firmware entered overheat mode"
         if s["temp"] is not None and s["temp"] >= c["max_temp"]:
             return "thermal", f"ASIC {s['temp']:.1f}°C ≥ {c['max_temp']}°C"
         if s["vr"] is not None and s["vr"] >= c["max_vr_temp"]:
@@ -662,7 +684,60 @@ class Tuner:
     def _device_summary(i):
         return {k: i.get(k) for k in ("hostname", "ASICModel", "deviceModel", "boardVersion",
                                        "version", "asicCount", "frequency", "coreVoltage",
-                                       "expectedHashrate", "voltage")}
+                                       "expectedHashrate", "voltage", "nominalVoltage", "maxPower")}
+
+
+def hottest_chip(info):
+    """Multi-chip boards report a second chip as temp2 (0 or missing on single-chip boards).
+    Safety checks must use the hottest chip, not just the first."""
+    temps = [t for t in (info.get("temp"), info.get("temp2")) if isinstance(t, (int, float)) and t > 0]
+    return max(temps) if temps else info.get("temp")
+
+
+def _clamp(key, v):
+    s = SCHEMA_BY_KEY[key]
+    return max(s["min"], min(s["max"], int(round(v))))
+
+
+def build_profile(info, asic):
+    """Factory profile for the detected miner: from the miner itself when its firmware reports
+    one, else from the built-in table by board version. Returns None for unknown boards."""
+    bv = str(info.get("boardVersion") or "")
+    db = BOARDS["boards"].get(bv)
+    if asic:
+        p = {"source": "miner", "family": asic.get("deviceModel") or info.get("deviceModel"),
+             "asic": asic.get("ASICModel") or info.get("ASICModel"), "chips": asic.get("asicCount") or info.get("asicCount"),
+             "default_freq": asic.get("defaultFrequency"), "default_volt": asic.get("defaultVoltage"),
+             "freq_options": [x for x in asic.get("frequencyOptions") or [] if isinstance(x, (int, float))],
+             "volt_options": [x for x in asic.get("voltageOptions") or [] if isinstance(x, (int, float))]}
+    elif db:
+        p = {"source": "built-in", **{k: db[k] for k in ("family", "asic", "chips", "default_freq",
+                                                        "default_volt", "freq_options", "volt_options")}}
+    else:
+        return None
+    if not p["default_freq"] or not p["default_volt"]:
+        return None
+    nominal = info.get("nominalVoltage") or (db or {}).get("nominal_v") or (12 if (info.get("voltage") or 0) > 9000 else 5)
+    gauge = info.get("maxPower") or (db or {}).get("gauge_max_power")
+    p.update(board_version=bv, nominal_v=nominal, gauge_max_power=gauge, table_source=BOARDS.get("source"))
+    # Starting limits from what the firmware defines:
+    #  - start at the factory frequency/voltage
+    #  - core voltage capped at the top of the firmware's own voltage options
+    #  - input window around the nominal supply (AxeOS warns below 94.9 % of nominal)
+    #  - power: the firmware's maxPower is only AxeOS's gauge scale (not enforced), so it is
+    #    used as a floor on top of the generic 5 V / 12 V limit, never as the only limit
+    preset = {"start_freq": _clamp("start_freq", p["default_freq"]),
+              "start_voltage": _clamp("start_voltage", p["default_volt"]),
+              "min_input_mv": _clamp("min_input_mv", nominal * 1000 * 0.95),
+              "max_input_mv": _clamp("max_input_mv", nominal * 1000 * 1.10),
+              "max_power": _clamp("max_power", max(100 if nominal >= 9 else 30, gauge or 0)),
+              # sweep ceiling: never below the firmware's own top frequency option (+50 MHz)
+              "max_freq": _clamp("max_freq", max(650, round((p["default_freq"] + 100) / 10) * 10,
+                                                 max(p["freq_options"] or [0]) + 50))}
+    if p["volt_options"]:
+        preset["max_voltage"] = _clamp("max_voltage", max(p["volt_options"]))
+    p["preset"] = preset
+    return p
 
 
 def recommend(results, cfg):
@@ -743,6 +818,7 @@ def api_state():
         s["storage_error"] = tuner.storage_error
         s["version"] = VERSION
         s["live_keys"] = LIVE_KEYS
+        s["board_table"] = {"source": BOARDS.get("source"), "count": len(BOARDS.get("boards", {}))}
         s["epoch"] = tuner.epoch
         s["schema"] = SCHEMA
         s["test_mode"] = TEST_MODE
@@ -756,12 +832,20 @@ def api_detect():
         host = clean_host((request.json or {}).get("host"))
         if not host:
             return err("Enter an IP address")
-        info = Bitaxe(host).info()
+        dev = Bitaxe(host)
+        info = dev.info()
+        asic = dev.asic()
     except ValueError as e:
         return err(str(e))
     except requests.RequestException as e:
         return err(f"Couldn't reach {host}: {e}")
-    return jsonify(Tuner._device_summary(info))
+    summary = Tuner._device_summary(info)
+    summary["profile"] = build_profile(info, asic)
+    with tuner.lock:
+        tuner.state["device"] = {k: v for k, v in summary.items() if k != "profile"}
+        tuner.state["profile"] = summary["profile"]
+    tuner._save()
+    return jsonify(summary)
 
 
 @app.post("/api/start")
