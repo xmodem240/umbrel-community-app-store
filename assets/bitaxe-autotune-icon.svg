@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#262932"/><stop offset="1" stop-color="#121318"/>
+    </linearGradient>
+    <linearGradient id="heat" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2ec27e"/><stop offset="0.6" stop-color="#2ec27e"/><stop offset="1" stop-color="#f7931a"/>
+    </linearGradient>
+    <radialGradient id="coin" cx="0.38" cy="0.32" r="0.8">
+      <stop offset="0" stop-color="#ffa833"/><stop offset="1" stop-color="#e8820a"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" fill="url(#bg)"/>
+  <!-- dial track + live-guard arc (270° gauge) -->
+  <path d="M62.9 193.1 A92 92 0 1 1 193.1 193.1" fill="none" stroke="#3a3d46" stroke-width="13" stroke-linecap="round"/>
+  <path d="M62.9 193.1 A92 92 0 1 1 213.0 92.8" fill="none" stroke="url(#heat)" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="213.0" cy="92.8" r="10" fill="#fff" stroke="#121318" stroke-width="4"/>
+  <!-- Bitcoin coin -->
+  <circle cx="128" cy="128" r="62" fill="url(#coin)"/>
+  <circle cx="128" cy="128" r="55" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+  <g transform="translate(128 130) rotate(14) scale(0.9) translate(-57 -55)" fill="#fff" fill-rule="evenodd">
+    <path d="M30 20 H58 C72 20 80 28 80 39 C80 46 76 51 70 53 C78 55 84 61 84 70 C84 82 75 90 60 90 H30 Z
+             M42 31 V48 H56 C63 48 67 45 67 39.5 C67 34 63 31 56 31 Z
+             M42 58 V79 H58 C66 79 71 75 71 68.5 C71 62 66 58 58 58 Z"/>
+    <rect x="40" y="10" width="7" height="13" rx="1"/><rect x="53" y="10" width="7" height="13" rx="1"/>
+    <rect x="40" y="87" width="7" height="13" rx="1"/><rect x="53" y="87" width="7" height="13" rx="1"/>
+  </g>
+  <!-- live loop badge -->
+  <circle cx="200" cy="200" r="34" fill="#121318"/>
+  <circle cx="200" cy="200" r="28" fill="#2ec27e"/>
+  <path d="M186 196 A15 15 0 0 1 212 190" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M214 204 A15 15 0 0 1 188 210" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M206 182 L215 190 L204 194 Z" fill="#fff"/>
+  <path d="M194 218 L185 210 L196 206 Z" fill="#fff"/>
+</svg>

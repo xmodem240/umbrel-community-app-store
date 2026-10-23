@@ -1,0 +1,47 @@
+manifestVersion: 1
+id: kyle-bitaxe-autotune
+category: bitcoin
+name: Bitaxe Autotuner
+icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bitaxe-autotune-icon.svg
+version: "0.1.0"
+tagline: Sweep for a safe overclock, then keep your miner tuned live as conditions change
+description: >-
+  Bitaxe Autotuner runs the same safe sweep as Bitaxe Tuner, stepping frequency and core voltage up
+  and recording which settings are stable. Instead of stopping there, it then keeps watching the
+  miner and adjusts it within the settings it proved stable.
+
+
+  The live guard starts on the "safe daily" profile and judges the miner in windows (15 minutes by
+  default). It steps frequency down one step right away when the ASIC error rate or rejected shares
+  rise, when temperatures get close to your limits, or when the firmware throttles. It steps up one
+  step only after several good windows in a row (an hour by default) with temperature headroom, and
+  never above the highest frequency the sweep proved stable. If a hard limit is hit it drops straight
+  back to the safe daily profile. That lets it run harder on cool nights and back off on hot days.
+
+
+  Changes are applied live when the miner's firmware supports it (current ESP-Miner does); the app
+  checks each change and falls back to restarting the miner, with longer gaps between changes, when
+  it doesn't. The miner's original settings are restored when you stop, on any error, and when the
+  app restarts.
+
+
+  Supports Bitaxe, the NerdAxe family and the Nexus S1, like Bitaxe Tuner. One miner at a time.
+
+
+  Overclocking can damage hardware and void warranties. Use at your own risk and set the limits to
+  match your board and power supply.
+developer: Kyle
+website: https://github.com/xmodem240/umbrel-community-app-store
+dependencies: []
+repo: https://github.com/xmodem240/umbrel-community-app-store
+support: https://github.com/xmodem240/umbrel-community-app-store/issues
+port: 8421
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+releaseNotes: >-
+  First release. Based on Bitaxe Tuner 0.4.0, plus the live guard that keeps adjusting the miner
+  within its tested-stable settings after the sweep.
+submitter: Kyle
+submission: https://github.com/xmodem240/umbrel-community-app-store

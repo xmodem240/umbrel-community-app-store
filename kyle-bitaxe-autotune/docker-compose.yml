@@ -1,0 +1,17 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: kyle-bitaxe-autotune_web_1
+      APP_PORT: 8080
+
+  web:
+    image: ghcr.io/xmodem240/bitaxe-autotune:0.1.0
+    restart: on-failure
+    stop_grace_period: 30s
+    environment:
+      DATA_DIR: /data
+      PORT: 8080
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
