@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2
+
+- Fix: log flooded with "pool rejected mining.authorize ... Invalid address" for the 2Miners pools. 2Miners'
+  BCH pools only accept a CashAddr login (`bitcoincash:q...`) and refused the legacy form. After a rejection
+  the next connection now offers the other spelling of the same address, and keeps whichever is accepted.
+- Fix: the reconnect delay was reset on every connect, so a pool that dropped us on login was retried every
+  2 s forever. It now resets only once a login is accepted or a job arrives, and a pool that refuses every
+  spelling is retried about every 10 minutes.
+- A repeated rejection is logged on the first two attempts, then at most every 30 minutes per pool.
+- A miss that cannot be saved because its pool was removed mid-race is no longer a warning.
+
 ## 0.2.1
 
 - New **Logs** card on the dashboard: every service's recent log lines (block races recorded, peers, pool

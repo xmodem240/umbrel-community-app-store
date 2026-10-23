@@ -1,5 +1,7 @@
 'use strict';
 
+const { loginForms } = require('./address-format');
+
 const net = require('net');
 const { EventEmitter } = require('events');
 
@@ -63,6 +65,13 @@ class StratumPoolConnection extends EventEmitter {
     // detecting an actually-dead socket. See config.js for the full math.
     this.idleTimeoutMs = idleTimeoutMs;
     this.authorizeAddress = authorizeAddress;
+    // Pools differ on which spelling of the login address they take: 2Miners'
+    // BCH pools want CashAddr and answer legacy with "Invalid address",
+    // Kryptex takes legacy. After a rejection the next connection offers the
+    // other spelling, and whichever is accepted is kept.
+    this.loginForms = loginForms(authorizeAddress);
+    this.loginFormIndex = 0;
+    this.rejections = 0;
     this.notifyCount = 0;
     this.authorized = null; // null = no response yet, true/false = pool's answer
     this._connectedAt = null;
@@ -106,7 +115,10 @@ class StratumPoolConnection extends EventEmitter {
     socket.setTimeout(this.idleTimeoutMs);
 
     socket.on('connect', () => {
-      this.reconnectDelayMs = 2000;
+      // The retry delay is NOT reset here: a pool that rejects our login drops
+      // the connection straight away, and resetting on connect made that a
+      // retry every two seconds forever. It resets once the pool proves it is
+      // talking to us (an accepted login or a job), below.
       this.buffer = '';
       this.notifyCount = 0;
       this.authorized = null;
@@ -124,7 +136,7 @@ class StratumPoolConnection extends EventEmitter {
       // even after the idle-timeout fix kept connections open. We never
       // submit shares, so the address doesn't need to be ours - see
       // config.js stratumAuthorizeAddress for why this specific one.
-      const authorize = JSON.stringify({ id: 2, method: 'mining.authorize', params: [`${this.authorizeAddress}.bchlab`, 'x'] });
+      const authorize = JSON.stringify({ id: 2, method: 'mining.authorize', params: [`${this.loginForms[this.loginFormIndex]}.bchlab`, 'x'] });
       socket.write(`${authorize}\n`);
       this.emit('connect');
       this._startHeartbeat();
@@ -149,9 +161,17 @@ class StratumPoolConnection extends EventEmitter {
       this.emit('disconnect');
       if (!this.stopped) {
         setTimeout(() => this._connect(), this.reconnectDelayMs);
-        this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 1.5, 30000);
+        this.reconnectDelayMs = this._nextDelayMs();
       }
     });
+  }
+
+  // 2 s growing by half each time. A pool that has refused every spelling of
+  // our login is not going to change its mind, so it is asked far less often
+  // (10 minutes) - still often enough to notice if it does.
+  _nextDelayMs() {
+    const cap = this.rejections >= 2 * this.loginForms.length ? 10 * 60 * 1000 : 30000;
+    return Math.min(this.reconnectDelayMs * 1.5, cap);
   }
 
   _startHeartbeat() {
@@ -209,6 +229,8 @@ class StratumPoolConnection extends EventEmitter {
         return;
       }
       this.notifyCount += 1;
+      this.rejections = 0;
+      this.reconnectDelayMs = 2000;
       this.emit('notify', {
         prevhash,
         cleanJobs: Boolean(cleanJobs),
@@ -228,7 +250,21 @@ class StratumPoolConnection extends EventEmitter {
       // Some pools don't require it at all and notify regardless; a
       // rejection here is only useful for debugging, never fatal.
       this.authorized = Boolean(msg.result);
-      this.emit('authorizeResult', { ok: this.authorized, error: msg.error || null });
+      if (this.authorized) {
+        this.rejections = 0;
+        this.reconnectDelayMs = 2000;
+      } else {
+        this.rejections += 1;
+        // Offer the other spelling next time, if there is one.
+        this.loginFormIndex = (this.loginFormIndex + 1) % this.loginForms.length;
+      }
+      this.emit('authorizeResult', {
+        ok: this.authorized,
+        error: msg.error || null,
+        // How many times in a row, so the caller can stop repeating itself.
+        rejections: this.rejections,
+        retryInMs: this.authorized ? null : this._nextDelayMs(),
+      });
     }
   }
 }

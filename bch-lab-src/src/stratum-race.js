@@ -172,8 +172,22 @@ function syncConnections() {
         handleNotify(pool, prevhash, receivedAtHr, receivedAtMs, firstAfterConnect));
       conn.on('socketError', (err) => logger.debug('pool socket error', { label: pool.label, error: err.message }));
       conn.on('protocolError', (info) => logger.warn('pool sent something unusable', { label: pool.label, ...info }));
-      conn.on('authorizeResult', ({ ok, error }) => {
-        if (!ok) logger.warn('pool rejected mining.authorize - it will likely never send us a job', { label: pool.label, error });
+      // A rejected login is reported when it first happens and then at most
+      // every half hour, not on every retry (the client backs off, but a pool
+      // that keeps refusing would still fill the log).
+      let lastRejectLogAt = 0;
+      conn.on('authorizeResult', ({ ok, error, rejections, retryInMs }) => {
+        if (ok) { lastRejectLogAt = 0; return; }
+        const now = Date.now();
+        // The first two (each address spelling once) are always worth a line.
+        if (rejections > 2 && now - lastRejectLogAt < 30 * 60 * 1000) return;
+        lastRejectLogAt = now;
+        logger.warn('pool rejected mining.authorize - it will likely never send us a job', {
+          label: pool.label,
+          error,
+          attempts: rejections,
+          next: rejections >= 2 ? `retrying about every ${Math.round(retryInMs / 60000)} min` : 'trying the other address format',
+        });
       });
       // Per-pool proof of life. Demoted from info to debug in v1.12.0: at
       // one line per pool every 15 minutes this was ~32 lines an hour of
@@ -231,7 +245,9 @@ function finalizeRace(hash) {
       // A DB error here must never crash this process - losing the whole event
       // loop over one race's bookkeeping would silently drop every pool
       // connection, not just this row.
-      logger.warn('failed to record a miss for finalized race', {
+      // A pool removed while a race was open is not a fault: its row is gone.
+      const log = /FOREIGN KEY/.test(err.message) ? logger.debug : logger.warn;
+      log('failed to record a miss for finalized race', {
         raceId: race.id,
         poolId,
         error: err.message,
