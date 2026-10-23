@@ -3,8 +3,8 @@ id: kyle-bitaxe-tuner
 category: bitcoin
 name: Bitaxe Tuner
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bitaxe-tuner-icon.svg
-version: "0.3.0"
-tagline: Find safe overclock profiles for your Bitaxe automatically
+version: "0.4.0"
+tagline: Find safe overclock profiles for Bitaxe, NerdAxe and Nexus miners automatically
 description: >-
   Bitaxe Tuner steps your Bitaxe's frequency and core voltage up in small increments, restarts
   the miner at each step, and measures hashrate, ASIC error rate, rejected shares, temperatures,
@@ -17,6 +17,11 @@ description: >-
   a "safe daily" profile with frequency headroom and thermal margin. You can apply any of them to
   the miner with one click. Your miner's original settings are always restored when a run ends, is
   stopped, or the app restarts.
+
+
+  Supports Bitaxe (Ultra, Supra, Gamma, Gamma Turbo, Hex, Naja Duo and more), the NerdAxe family
+  (NerdQAxe+, NerdQAxe++, NerdOCTAXE, NerdHaxe and more) and the Nexus S1. Detect recognizes the
+  model and fills in its factory settings and safety limits.
 
 
   Overclocking can damage hardware and void warranties. Use at your own risk and set the limits to
@@ -32,16 +37,11 @@ path: ""
 defaultUsername: ""
 defaultPassword: ""
 releaseNotes: >-
-  Detect now recognizes your Bitaxe model and fills in its factory settings: the run starts at the
-  factory frequency and core voltage, core voltage is capped at the top of the firmware's own
-  voltage range, and input-voltage limits follow the board's nominal supply. Defaults come from
-  the miner's firmware when it reports them, otherwise from a built-in table of 25 official board
-  versions generated from ESP-Miner (Max, Ultra, Supra, Gamma, Gamma Duo, Gamma Turbo, Hex,
-  Supra Hex, Gamma Hex, Naja Duo).
-
-
-  Safety: on two-chip boards (Naja Duo, Gamma Turbo and others) the temperature limit now watches
-  the hottest chip instead of only the first, and a run stops if the firmware enters its own
-  overheat mode.
+  Adds the NerdAxe family (NerdQAxe+, NerdQAxe++ including rev 7, NerdOCTAXE+, NerdHaxe, NerdAxe,
+  Gamma, Gaia, NerdEKO, Q1373) and the Nexus S1. Detect reads each miner's factory defaults, its
+  rated input-voltage range, its overheat temperature and its absolute frequency/voltage maximums
+  (which the NerdAxe firmware enforces), and sets the limits to match. Miners whose firmware
+  doesn't report an error rate are judged on hashrate and rejected shares. Multi-chip boards are
+  watched on their hottest chip.
 submitter: Kyle
 submission: https://github.com/xmodem240/umbrel-community-app-store

@@ -1,14 +1,17 @@
-"""Simulated Bitaxe (AxeOS API) for testing the tuner. Not part of the shipped app.
+"""Simulated miner (AxeOS-style API) for testing the tuner. Not part of the shipped app.
 
 Model: stable ceiling rises with voltage; error rate climbs near/over the ceiling;
 temperature and power rise with frequency and voltage.
 
 Environment:
-  MOCK_BOARD   board version to emulate, from src/boards.json (default "201" = Ultra)
-  MOCK_OLD_FW  1 = older firmware: no /api/system/asic, no nominalVoltage/maxPower in info
-  MOCK_VIN     input voltage in mV (default: board nominal + 0.1 V)
-  MOCK_NO_VR   1 = board doesn't report VR temperature
-On multi-chip boards the second chip (temp2) runs 3 °C hotter than the first.
+  MOCK_FW      bitaxe (default) | nerd (NerdQAxe++ firmware) | nexus (Nexus S1)
+  MOCK_BOARD   bitaxe: board version from src/boards.json (default "201" = Ultra)
+  MOCK_OLD_FW  bitaxe: older firmware without /api/system/asic, nominalVoltage, maxPower
+  MOCK_REV7    nerd: NerdQAxe++ rev 7 limits (120 W, up to 1000 MHz / 1300 mV)
+  MOCK_NEXUS_ASIC  nexus: also serve /api/system/asic (with made-up test defaults)
+  MOCK_VIN     input voltage in mV (default: nominal + 0.1 V)
+  MOCK_NO_VR   board doesn't report VR temperature
+On multi-chip boards the chips run progressively hotter (+3 C for the hottest).
 """
 import json
 import os
@@ -19,13 +22,30 @@ import time
 from flask import Flask, jsonify, request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-with open(os.path.join(HERE, "..", "src", "boards.json")) as f:
-    BOARDS = json.load(f)["boards"]
-BV = os.environ.get("MOCK_BOARD", "201")
-B = BOARDS.get(BV, {"family": "Custom", "asic": "BM1366", "chips": 1, "default_freq": 485,
-                    "default_volt": 1200, "freq_options": [], "volt_options": [],
-                    "gauge_max_power": 25, "nominal_v": 5})
+FW = os.environ.get("MOCK_FW", "bitaxe")
 OLD_FW = bool(os.environ.get("MOCK_OLD_FW"))
+
+if FW == "nerd":
+    rev7 = bool(os.environ.get("MOCK_REV7"))
+    B = {"family": "NerdQAxe++", "asic": "BM1370", "chips": 4, "default_freq": 600,
+         "default_volt": 1200 if rev7 else 1150, "nominal_v": 12,
+         "freq_options": [500, 515, 525, 550, 575, 590, 600] + ([625, 650, 675, 700, 725, 750, 775, 800, 825, 850, 875, 900, 925, 950, 975, 1000] if rev7 else []),
+         "volt_options": list(range(1120, (1300 if rev7 else 1200) + 1, 10)),
+         "abs_max_freq": 1000 if rev7 else 800, "abs_max_volt": 1400,
+         "max_pin": 120.0 if rev7 else 100.0, "min_pin": 45.0 if rev7 else 52.0}
+    PSCALE, TOFF = 1.34, 4
+elif FW == "nexus":
+    B = {"family": "Nexus S1", "asic": "BM1373", "chips": 4, "default_freq": 450, "default_volt": 1050,
+         "nominal_v": 12, "freq_options": [], "volt_options": [], "gauge_max_power": 120}
+    PSCALE, TOFF = 1.84, 8
+else:
+    with open(os.path.join(HERE, "..", "src", "boards.json")) as f:
+        BOARDS = json.load(f)["boards"]
+    BV = os.environ.get("MOCK_BOARD", "201")
+    B = BOARDS.get(BV, {"family": "Custom", "asic": "BM1366", "chips": 1, "default_freq": 485,
+                        "default_volt": 1200, "freq_options": [], "volt_options": [],
+                        "gauge_max_power": 25, "nominal_v": 5})
+    PSCALE, TOFF = 1.0, 0
 CHIPS = B["chips"]
 F0, V0 = B["default_freq"], B["default_volt"]
 
@@ -45,8 +65,8 @@ def model():
     eff = 1.0 if over <= 0 else max(0.0, 1 - over / 40)
     err = 0.2 if over < -20 else (0.6 if over <= 0 else 2 + over * 0.5)
     per_chip = 8 + (f / F0) ** 1.2 * (v / V0) ** 2 * 6
-    temp = 40 + (per_chip - 8) * 1.9
-    return exp, exp * eff, err, per_chip * CHIPS, temp
+    temp = 40 + (per_chip - 8) * 1.9 + TOFF
+    return exp, exp * eff, err, per_chip * CHIPS * PSCALE, temp
 
 
 @app.get("/api/system/info")
@@ -60,26 +80,35 @@ def info():
         S["acc"] += int(dt * 2)
         if err > 1.5:
             S["rej"] += int(dt * 0.5 * err)
-        d = dict(hostname="bitaxe-sim", ASICModel=B["asic"], deviceModel=B["family"],
-                 boardVersion=BV, version="v2.4.0", asicCount=CHIPS,
-                 smallCoreCount=1280, frequency=S["freq"], coreVoltage=S["volt"],
-                 hashRate=h, expectedHashrate=exp, errorPercentage=err, power=power,
-                 temp=temp, temp2=(temp + 3) if CHIPS > 1 else 0,
-                 vrTemp=None if os.environ.get("MOCK_NO_VR") else temp + 8,
-                 voltage=int(os.environ.get("MOCK_VIN", str(B["nominal_v"] * 1000 + 100))), fanspeed=70,
-                 sharesAccepted=S["acc"], sharesRejected=S["rej"], overheat_mode=0)
-        if not OLD_FW:
+        vin = int(os.environ.get("MOCK_VIN", str(B["nominal_v"] * 1000 + 100)))
+        common = dict(hostname="miner-sim", ASICModel=B["asic"], deviceModel=B["family"], asicCount=CHIPS,
+                      smallCoreCount=1200, frequency=S["freq"], coreVoltage=S["volt"], hashRate=h, power=power,
+                      vrTemp=None if os.environ.get("MOCK_NO_VR") else temp + 8, voltage=vin,
+                      sharesAccepted=S["acc"], sharesRejected=S["rej"], version="v2.4.0")
+        if FW == "nerd":
+            # NerdQAxe firmware: hottest chip in temp, per-chip asicTemps, rated limits,
+            # no errorPercentage / expectedHashrate / boardVersion
+            chips = [temp - 3 + i for i in range(CHIPS)]
+            return jsonify(**common, temp=max(chips), asicTemps=chips, fanspeed=70,
+                           maxPower=B["max_pin"], minPower=B["min_pin"], maxVoltage=13.0, minVoltage=11.0,
+                           defaultFrequency=F0, defaultCoreVoltage=V0, overheat_temp=70)
+        d = dict(**common, temp=temp, temp2=(temp + 3) if CHIPS > 1 else 0, errorPercentage=err,
+                 expectedHashrate=exp, fanspeed=70, overheat_mode=0,
+                 boardVersion=os.environ.get("MOCK_BOARD", "201") if FW == "bitaxe" else "N1")
+        if not OLD_FW and FW == "bitaxe":
             d.update(nominalVoltage=B["nominal_v"], maxPower=B["gauge_max_power"])
         return jsonify(d)
 
 
 @app.get("/api/system/asic")
 def asic():
-    if OLD_FW:
+    if (FW == "bitaxe" and OLD_FW) or (FW == "nexus" and not os.environ.get("MOCK_NEXUS_ASIC")):
         return ("not found", 404)
-    return jsonify(ASICModel=B["asic"], deviceModel=B["family"], asicCount=CHIPS,
-                   defaultFrequency=F0, frequencyOptions=B["freq_options"],
-                   defaultVoltage=V0, voltageOptions=B["volt_options"])
+    d = dict(ASICModel=B["asic"], deviceModel=B["family"], asicCount=CHIPS, defaultFrequency=F0,
+             frequencyOptions=B["freq_options"], defaultVoltage=V0, voltageOptions=B["volt_options"])
+    if FW == "nerd":
+        d.update(absMaxFrequency=B["abs_max_freq"], absMaxVoltage=B["abs_max_volt"])
+    return jsonify(d)
 
 
 @app.patch("/api/system")
@@ -95,6 +124,9 @@ def patch():
 def restart():
     with lock:
         S["boot"] = time.time() + 2
+        if FW == "nerd":   # NerdQAxe firmware clamps to its absolute maximums at boot
+            S["freq"] = min(S["freq"], B["abs_max_freq"])
+            S["volt"] = min(S["volt"], B["abs_max_volt"])
     return jsonify(ok=True)
 
 

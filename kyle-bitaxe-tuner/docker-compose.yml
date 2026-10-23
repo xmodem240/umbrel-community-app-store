@@ -7,7 +7,7 @@ services:
       APP_PORT: 8080
 
   web:
-    image: ghcr.io/xmodem240/bitaxe-tuner:0.3.0
+    image: ghcr.io/xmodem240/bitaxe-tuner:0.4.0
     restart: on-failure
     stop_grace_period: 30s
     environment:

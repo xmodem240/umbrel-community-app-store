@@ -32,17 +32,25 @@ actually stable, with three recommended profiles: **max hashrate**, **best effic
    stable frequency. It ends when more voltage stops helping, or at your max frequency/voltage.
 5. Original settings are restored on finish, on **Stop**, on any error, and on app restart/crash.
 
-## Model recognition
-**Detect** identifies the Bitaxe and fills in its factory settings: the run starts at the factory
-frequency/core voltage, core voltage is capped at the top of the firmware's own voltage options, and
-the input-voltage window follows the board's nominal supply (5 V or 12 V). The profile comes from the
-miner itself (`/api/system/asic`, ESP-Miner 2.x+) or, on older firmware, from `src/boards.json`, a
-table of all 25 official board versions generated from ESP-Miner's `main/device_config.h` by
-`tests/gen_boards.py`. Unknown boards fall back to generic 5 V / 12 V limits.
+## Supported miners
+Works with miners running AxeOS-style firmware (ESP-Miner and its forks). **Detect** identifies the
+miner and fills in its factory settings and limits:
 
-The firmware's `maxPower` is only AxeOS's power-gauge scale and isn't enforced, so it is used as a
-floor for the power limit, never as the only limit. On multi-chip boards the temperature limit uses
-the hottest chip (`temp`/`temp2`), and a run stops if the firmware enters overheat mode.
+| Family | How it's recognized | Source of factory values |
+|---|---|---|
+| **Bitaxe** (Max, Ultra, Supra, Gamma, Gamma Duo, Gamma Turbo, Hex, Supra Hex, Gamma Hex, Naja Duo) | board version | the miner (`/api/system/asic`), else `src/boards.json`, generated from ESP-Miner `main/device_config.h` by `tests/gen_boards.py` |
+| **NerdAxe** (NerdAxe, NerdAxe Gamma, Gaia, NerdQAxe+, NerdQAxe++, NerdOCTAXE+, NerdHaxe-γ, NerdEKO, Q1373) | device model | the miner (defaults, options, absolute maximums, rated input range, overheat temperature), else `src/models_extra.json` from the NerdQAxe firmware's board files |
+| **Nexus S1** | device model | the miner if it reports them, plus the manufacturer's published specs (4× BM1373, 12 V, 103 W ±10 %) |
+
+Presets: start at the factory frequency/voltage; core voltage capped at the top of the firmware's
+voltage options and never above its absolute maximum (NerdAxe firmware clamps anything higher at
+boot); input window from the firmware's rated range or 95-110 % of nominal; temperature limit below
+the firmware's own overheat shutdown. `maxPower` is a UI gauge scale on both firmwares and is only
+used as a floor for the power limit. Unknown miners fall back to generic 5 V / 12 V limits.
+
+NerdAxe firmware doesn't report an ASIC error rate or expected hashrate; stability is judged on
+hashrate (against frequency × cores) and rejected shares. On multi-chip boards the temperature limit
+uses the hottest chip (`temp`/`temp2`/`asicTemps`), and a run stops if the firmware enters overheat mode.
 
 ## While it runs
 - A sticky status bar shows a live heartbeat, the current point and phase (apply, warm-up, measure),

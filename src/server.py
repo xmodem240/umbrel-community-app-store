@@ -24,7 +24,7 @@ import requests
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 # Factory defaults per board, generated from ESP-Miner's device_config.h (see tests/gen_boards.py).
 # Used only when the miner's firmware is too old to report its own profile via /api/system/asic.
@@ -33,6 +33,12 @@ try:
         BOARDS = json.load(_f)
 except (OSError, ValueError):
     BOARDS = {"source": "", "boards": {}}
+# NerdAxe-family boards (from the NerdQAxe firmware source) and spec-only models (e.g. Nexus S1).
+try:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "models_extra.json")) as _f:
+        EXTRA = json.load(_f)
+except (OSError, ValueError):
+    EXTRA = {"nerd": {}, "spec": []}
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 MAX_SAMPLES = 6000
@@ -478,7 +484,8 @@ class Tuner:
                 (abs(s["freq"] - freq) > 1 or abs(s["volt"] - volt) > 1):
             raise RuntimeError(
                 f"Miner reports {s['freq']} MHz / {s['volt']} mV, expected {freq} / {volt}. "
-                "It rejected or clamped the setting.")
+                "It rejected or clamped the setting; this is usually the firmware's own maximum. "
+                "Lower Max frequency / Max core voltage.")
 
     def _measure_point(self, freq, volt):
         c = self.state["config"]
@@ -690,7 +697,8 @@ class Tuner:
 def hottest_chip(info):
     """Multi-chip boards report a second chip as temp2 (0 or missing on single-chip boards).
     Safety checks must use the hottest chip, not just the first."""
-    temps = [t for t in (info.get("temp"), info.get("temp2")) if isinstance(t, (int, float)) and t > 0]
+    per_chip = info.get("asicTemps") if isinstance(info.get("asicTemps"), list) else []   # NerdAxe firmware
+    temps = [t for t in (info.get("temp"), info.get("temp2"), *per_chip) if isinstance(t, (int, float)) and t > 0]
     return max(temps) if temps else info.get("temp")
 
 
@@ -699,43 +707,83 @@ def _clamp(key, v):
     return max(s["min"], min(s["max"], int(round(v))))
 
 
+def _pos(v):
+    return v if isinstance(v, (int, float)) and v > 0 else None
+
+
 def build_profile(info, asic):
-    """Factory profile for the detected miner: from the miner itself when its firmware reports
-    one, else from the built-in table by board version. Returns None for unknown boards."""
+    """Factory profile for the detected miner, from (in order) the miner's own firmware report,
+    the built-in Bitaxe table (by board version), the built-in NerdAxe table (by device model),
+    or published vendor specs (e.g. Nexus S1). Returns None for miners it doesn't recognize."""
+    dm = str((asic or {}).get("deviceModel") or info.get("deviceModel") or "")
     bv = str(info.get("boardVersion") or "")
-    db = BOARDS["boards"].get(bv)
-    if asic:
-        p = {"source": "miner", "family": asic.get("deviceModel") or info.get("deviceModel"),
-             "asic": asic.get("ASICModel") or info.get("ASICModel"), "chips": asic.get("asicCount") or info.get("asicCount"),
-             "default_freq": asic.get("defaultFrequency"), "default_volt": asic.get("defaultVoltage"),
+    bitaxe = BOARDS["boards"].get(bv)
+    nerd = EXTRA["nerd"].get(dm)
+    spec = next((x for x in EXTRA["spec"] if re.search(x["match"], dm, re.I)), None)
+    is_nerd = bool(nerd) or dm.lower().startswith("nerd") or "minPower" in info or bool(asic and "absMaxFrequency" in asic)
+    brand = spec["brand"] if spec else "NerdAxe" if is_nerd else "Bitaxe" if bitaxe else ""
+    entry = bitaxe if brand == "Bitaxe" else nerd if brand == "NerdAxe" else None
+
+    if asic and asic.get("defaultFrequency"):
+        p = {"source": "miner", "family": dm, "asic": asic.get("ASICModel") or info.get("ASICModel"),
+             "chips": asic.get("asicCount") or info.get("asicCount"),
+             "default_freq": asic.get("defaultFrequency"),
+             "default_volt": asic.get("defaultVoltage") or info.get("defaultCoreVoltage"),
              "freq_options": [x for x in asic.get("frequencyOptions") or [] if isinstance(x, (int, float))],
-             "volt_options": [x for x in asic.get("voltageOptions") or [] if isinstance(x, (int, float))]}
-    elif db:
-        p = {"source": "built-in", **{k: db[k] for k in ("family", "asic", "chips", "default_freq",
-                                                        "default_volt", "freq_options", "volt_options")}}
+             "volt_options": [x for x in asic.get("voltageOptions") or [] if isinstance(x, (int, float))],
+             "abs_max_freq": _pos(asic.get("absMaxFrequency") or info.get("absMaxFrequency")),
+             "abs_max_volt": _pos(asic.get("absMaxVoltage") or info.get("absMaxVoltage"))}
+    elif entry:
+        p = {"source": "built-in", "family": entry.get("family", dm), "asic": entry["asic"], "chips": entry["chips"],
+             "default_freq": entry["default_freq"], "default_volt": entry["default_volt"],
+             "freq_options": entry["freq_options"], "volt_options": entry["volt_options"],
+             "abs_max_freq": entry.get("abs_max_freq"), "abs_max_volt": entry.get("abs_max_volt")}
+    elif spec:
+        p = {"source": "spec", "family": spec["name"], "asic": spec["asic"], "chips": spec["chips"],
+             "default_freq": None, "default_volt": None, "freq_options": [], "volt_options": [],
+             "abs_max_freq": None, "abs_max_volt": None}
     else:
         return None
-    if not p["default_freq"] or not p["default_volt"]:
-        return None
-    nominal = info.get("nominalVoltage") or (db or {}).get("nominal_v") or (12 if (info.get("voltage") or 0) > 9000 else 5)
-    gauge = info.get("maxPower") or (db or {}).get("gauge_max_power")
-    p.update(board_version=bv, nominal_v=nominal, gauge_max_power=gauge, table_source=BOARDS.get("source"))
+
+    e = entry or {}
+    vin_lo, vin_hi = _pos(info.get("minVoltage")), _pos(info.get("maxVoltage"))     # volts (NerdAxe firmware)
+    if not (vin_lo and vin_hi) and e.get("vin"):
+        vin_lo, vin_hi = e["vin"]
+    nominal = (info.get("nominalVoltage") or e.get("nominal_v") or (spec or {}).get("nominal_v")
+               or (12 if (vin_hi or 0) > 9 or (info.get("voltage") or 0) > 9000 else 5))
+    gauge = _pos(info.get("maxPower")) or e.get("gauge_max_power")
+    overheat = _pos(info.get("overheat_temp"))
+    p.update(brand=brand, board_version=bv or None, nominal_v=nominal, gauge_max_power=gauge,
+             overheat_temp=overheat, no_error_rate="errorPercentage" not in info,
+             note=(spec or {}).get("note") or (e.get("note") if p["source"] == "built-in" else None),
+             table_source={"Bitaxe": BOARDS.get("source"), "NerdAxe": EXTRA.get("nerd_source"),
+                           "Nexus": EXTRA.get("spec_source")}.get(brand))
+
     # Starting limits from what the firmware defines:
-    #  - start at the factory frequency/voltage
-    #  - core voltage capped at the top of the firmware's own voltage options
-    #  - input window around the nominal supply (AxeOS warns below 94.9 % of nominal)
-    #  - power: the firmware's maxPower is only AxeOS's gauge scale (not enforced), so it is
-    #    used as a floor on top of the generic 5 V / 12 V limit, never as the only limit
-    preset = {"start_freq": _clamp("start_freq", p["default_freq"]),
-              "start_voltage": _clamp("start_voltage", p["default_volt"]),
-              "min_input_mv": _clamp("min_input_mv", nominal * 1000 * 0.95),
-              "max_input_mv": _clamp("max_input_mv", nominal * 1000 * 1.10),
-              "max_power": _clamp("max_power", max(100 if nominal >= 9 else 30, gauge or 0)),
-              # sweep ceiling: never below the firmware's own top frequency option (+50 MHz)
-              "max_freq": _clamp("max_freq", max(650, round((p["default_freq"] + 100) / 10) * 10,
-                                                 max(p["freq_options"] or [0]) + 50))}
-    if p["volt_options"]:
-        preset["max_voltage"] = _clamp("max_voltage", max(p["volt_options"]))
+    #  - start at the factory frequency/voltage (or the miner's current settings when unknown)
+    #  - core voltage capped at the top of the firmware's own options, and never above the
+    #    firmware's absolute maximum (enforced: the miner clamps anything higher at boot)
+    #  - input window: the firmware's rated range when it reports one, else 95-110 % of nominal
+    #  - power: maxPower is a UI gauge scale on both firmwares (not enforced), so it is only a floor
+    #  - temperature: below the firmware's own overheat shutdown when it reports one
+    df, top_f = p["default_freq"], max(p["freq_options"] or [0])
+    ceiling = max(650, round(((df or 0) + 100) / 10) * 10, top_f + 50 if top_f else 0)
+    if p["abs_max_freq"]:
+        ceiling = min(ceiling, p["abs_max_freq"])
+    vcap = max(p["volt_options"]) if p["volt_options"] else SCHEMA_BY_KEY["max_voltage"]["default"]
+    if p["abs_max_volt"]:
+        vcap = min(vcap, p["abs_max_volt"])
+    if (spec or {}).get("max_voltage"):
+        vcap = min(vcap, spec["max_voltage"])
+    max_temp = (spec or {}).get("max_temp") or SCHEMA_BY_KEY["max_temp"]["default"]
+    if overheat:
+        max_temp = min(max_temp, overheat - 2)
+    preset = {"start_freq": _clamp("start_freq", df or 0), "start_voltage": _clamp("start_voltage", p["default_volt"] or 0),
+              "min_input_mv": _clamp("min_input_mv", (vin_lo * 1000) if vin_lo else nominal * 1000 * 0.95),
+              "max_input_mv": _clamp("max_input_mv", (vin_hi * 1000) if vin_hi else nominal * 1000 * 1.10),
+              "max_power": _clamp("max_power", max(100 if nominal >= 9 else 30, gauge or 0, (spec or {}).get("power_floor") or 0)),
+              "max_freq": _clamp("max_freq", ceiling), "max_voltage": _clamp("max_voltage", vcap),
+              "max_temp": _clamp("max_temp", max_temp)}
     p["preset"] = preset
     return p
 
@@ -818,7 +866,8 @@ def api_state():
         s["storage_error"] = tuner.storage_error
         s["version"] = VERSION
         s["live_keys"] = LIVE_KEYS
-        s["board_table"] = {"source": BOARDS.get("source"), "count": len(BOARDS.get("boards", {}))}
+        s["board_table"] = {"source": BOARDS.get("source"), "count": len(BOARDS.get("boards", {})),
+                            "nerd_count": len(EXTRA.get("nerd", {})), "spec_count": len(EXTRA.get("spec", []))}
         s["epoch"] = tuner.epoch
         s["schema"] = SCHEMA
         s["test_mode"] = TEST_MODE

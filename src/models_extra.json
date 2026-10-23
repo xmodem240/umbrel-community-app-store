@@ -1,0 +1,323 @@
+{
+ "nerd_source": "shufps/ESP-Miner-NerdQAxePlus main/boards/*.cpp @ c0f1e0f (base board profiles; newer firmware reports its own values live)",
+ "nerd": {
+  "NerdAxe": {
+   "asic": "BM1366",
+   "chips": 1,
+   "default_freq": 485,
+   "default_volt": 1200,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    485,
+    500,
+    525,
+    550,
+    575
+   ],
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300
+   ],
+   "gauge_max_power": 15,
+   "vin": [
+    4.5,
+    5.5
+   ],
+   "nominal_v": 5
+  },
+  "NerdAxeGamma": {
+   "asic": "BM1370",
+   "chips": 1,
+   "default_freq": 515,
+   "default_volt": 1150,
+   "freq_options": [
+    500,
+    515,
+    525,
+    550,
+    575
+   ],
+   "volt_options": [
+    1120,
+    1130,
+    1140,
+    1150,
+    1160,
+    1170,
+    1180,
+    1190,
+    1200
+   ],
+   "gauge_max_power": 25,
+   "vin": [
+    4.5,
+    5.5
+   ],
+   "nominal_v": 5
+  },
+  "NerdAxeGaia": {
+   "asic": "BM1373",
+   "chips": 1,
+   "default_freq": 350,
+   "default_volt": 940,
+   "freq_options": [
+    300,
+    320,
+    340,
+    350,
+    360,
+    380,
+    400,
+    420,
+    440
+   ],
+   "volt_options": [
+    900,
+    920,
+    940,
+    960,
+    980,
+    1000,
+    1020,
+    1040
+   ],
+   "abs_max_volt": 1300,
+   "gauge_max_power": 40,
+   "vin": [
+    10.8,
+    13.2
+   ],
+   "nominal_v": 12
+  },
+  "NerdQAxe+": {
+   "asic": "BM1368",
+   "chips": 4,
+   "default_freq": 490,
+   "default_volt": 1250,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    490,
+    500,
+    525,
+    550,
+    575
+   ],
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300,
+    1350
+   ],
+   "abs_max_freq": 800,
+   "abs_max_volt": 1400,
+   "gauge_max_power": 70,
+   "vin": [
+    11.0,
+    13.0
+   ],
+   "nominal_v": 12
+  },
+  "NerdQAxe++": {
+   "asic": "BM1370",
+   "chips": 4,
+   "default_freq": 600,
+   "default_volt": 1150,
+   "freq_options": [
+    500,
+    515,
+    525,
+    550,
+    575,
+    590,
+    600
+   ],
+   "volt_options": [
+    1120,
+    1130,
+    1140,
+    1150,
+    1160,
+    1170,
+    1180,
+    1190,
+    1200
+   ],
+   "abs_max_freq": 800,
+   "abs_max_volt": 1400,
+   "gauge_max_power": 100,
+   "vin": [
+    11.0,
+    13.0
+   ],
+   "nominal_v": 12,
+   "note": "Rev 7 boards report higher limits (120 W, up to 1000 MHz / 1300 mV) from the firmware itself"
+  },
+  "NerdOCTAXE+": {
+   "asic": "BM1368",
+   "chips": 8,
+   "default_freq": 490,
+   "default_volt": 1250,
+   "freq_options": [
+    400,
+    425,
+    450,
+    475,
+    490,
+    500,
+    525,
+    550,
+    575
+   ],
+   "volt_options": [
+    1100,
+    1150,
+    1200,
+    1250,
+    1300,
+    1350
+   ],
+   "abs_max_freq": 800,
+   "abs_max_volt": 1400,
+   "gauge_max_power": 130,
+   "vin": [
+    11.0,
+    13.0
+   ],
+   "nominal_v": 12
+  },
+  "NerdHaxe-γ": {
+   "asic": "BM1370",
+   "chips": 6,
+   "default_freq": 600,
+   "default_volt": 1150,
+   "freq_options": [
+    500,
+    515,
+    525,
+    550,
+    575,
+    590,
+    600
+   ],
+   "volt_options": [
+    1120,
+    1130,
+    1140,
+    1150,
+    1160,
+    1170,
+    1180,
+    1190,
+    1200
+   ],
+   "abs_max_freq": 800,
+   "abs_max_volt": 1400,
+   "gauge_max_power": 250,
+   "vin": [
+    11.0,
+    13.0
+   ],
+   "nominal_v": 12
+  },
+  "NerdEKO": {
+   "asic": "BM1370",
+   "chips": 12,
+   "default_freq": 600,
+   "default_volt": 1150,
+   "freq_options": [
+    500,
+    515,
+    525,
+    550,
+    575,
+    590,
+    600
+   ],
+   "volt_options": [
+    1120,
+    1130,
+    1140,
+    1150,
+    1160,
+    1170,
+    1180,
+    1190,
+    1200
+   ],
+   "abs_max_freq": 800,
+   "abs_max_volt": 1400,
+   "gauge_max_power": 350,
+   "vin": [
+    8.0,
+    13.0
+   ],
+   "nominal_v": 12
+  },
+  "Q1373": {
+   "asic": "BM1373",
+   "chips": 4,
+   "default_freq": 425,
+   "default_volt": 1010,
+   "freq_options": [
+    250,
+    275,
+    300,
+    325,
+    350,
+    375,
+    400,
+    425,
+    475,
+    500,
+    550
+   ],
+   "volt_options": [
+    980,
+    990,
+    1000,
+    1010,
+    1020,
+    1030,
+    1040,
+    1050,
+    1060,
+    1070,
+    1080
+   ],
+   "abs_max_freq": 1200,
+   "abs_max_volt": 1400,
+   "gauge_max_power": 180,
+   "vin": [
+    11.0,
+    13.0
+   ],
+   "nominal_v": 12
+  }
+ },
+ "spec_source": "Vendor product pages (nexusminer.org, solofury.com review), Oct 2026",
+ "spec": [
+  {
+   "match": "nexus",
+   "name": "Nexus S1",
+   "brand": "Nexus",
+   "asic": "BM1373",
+   "chips": 4,
+   "nominal_v": 12,
+   "power_floor": 150,
+   "max_temp": 70,
+   "note": "Vendor specs: 4x BM1373, 12 V XT30, 103 W +/-10 %, 10.3 TH/s, normal operating range 57-65 C. Factory frequency/voltage aren't published, so a run starts from the miner's current settings. Power limit 150 W covers stock draw variance (some early units reportedly draw ~140 W). Core voltage capped at 1,250 mV, the top BM1373 voltage option in ESP-Miner.",
+   "max_voltage": 1250
+  }
+ ]
+}
