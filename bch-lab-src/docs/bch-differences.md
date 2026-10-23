@@ -17,22 +17,31 @@ Treat those passages as the design intent, not as verified BCHN facts.
 | Pool attribution list | bitcoin-data/mining-pools | empty (see MINING-POOLS.md) |
 | Database file | `bitcoinlab.db` | `bchlab.db` |
 
-## Unverified assumptions
+## Verified against BCHN v29 source
 
-Run `node scripts/check-node.js` against your node to settle the first three.
+Read from `rpc/net.cpp`, not yet observed on a live node.
 
-1. **`getpeerinfo` fields.** The app needs `last_block` (the whole ranking rests on it),
-   `connection_type`, `bip152_hb_to`, `servicesnames`, `network`. Bitcoin ABC's
-   documentation lists all of them; BCHN's was not checked field by field.
-2. **`addnode` cap of 8.** `MAX_MANUAL_PEERS=8` mirrors Bitcoin Core's
-   `MAX_ADDNODE_CONNECTIONS`. Whether BCHN enforces the same cap is unchecked. The value
-   is configurable.
-3. **`last_block` semantics.** The ranking assumes the field is only set for a block that
-   was new to the node, so that exactly one peer is credited. If BCHN sets it differently,
-   First % will be wrong.
-4. **`getblocktemplate` with `{}`.** Should work on BCHN; the template-timing number is
+- **`getpeerinfo` has no `last_block`, `connection_type`, `network` or `servicesnames`.**
+  BCHN keeps the last-block time internally (`nLastBlockTime`) and never reports it. The app
+  therefore (a) derives `connection_type` (`addnode` -> manual, else inbound/outbound),
+  `network` and `servicesnames` itself (`lib/peer-compat.js`), and (b) credits **First** from
+  `bytesrecv_per_msg` - peers whose `cmpctblock`+`block` bytes grew since a baseline taken
+  ~20 s after the previous block (`lib/delivery-bytes.js`). It uses `last_block` instead if a
+  node ever reports it.
+- **Consequences of the byte method:** peers whose copies land within BCHN's block-acceptance
+  time of each other are all credited (more ties than Core); a stale/competing block relayed in
+  between can be credited to the next block; the first block after a start is not counted;
+  `nearest_delta_ms` is empty.
+- **`addnode` cap is 8** (`MAX_ADDNODE_CONNECTIONS`), matching `MAX_MANUAL_PEERS=8`.
+- BCHN peers announce `(EB32.0)` in their user agent; this is no sign of another chain.
+
+## Still unverified
+
+Run `node scripts/check-node.js` against your node to see which method it will use.
+
+1. **`getblocktemplate` with `{}`.** Should work on BCHN; the template-timing number is
    non-critical and logs a warning on failure.
-5. **Stratum.** Pools are timed on `mining.notify`. The authorize username is a legacy
+2. **Stratum.** Pools are timed on `mining.notify`. The authorize username is a legacy
    Base58 address (`1BitcoinEater...`), which is valid on BCH too; some pools may want a
    CashAddr. Override with `STRATUM_AUTHORIZE_ADDRESS`.
 6. **No Peer Map.** The Bitcoin sibling app has no BCH version; the link to it is inert.

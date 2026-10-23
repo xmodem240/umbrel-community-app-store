@@ -25,7 +25,7 @@ That is why the order in the table can differ from the raw First percentages: th
 
 Bitcoin Cash Lab listens for new blocks through BCHN's ZMQ interface and records the arrival time immediately. It then checks BCHN's peer information to identify which connection delivered the new block.
 
-BCHN updates a peer's `last_block` timestamp when it processes a newly accepted block from that peer. Later copies of the same block from other peers do not update their timestamps. Bitcoin Cash Lab matches this signal to the block event to record First.
+BCHN does not report which peer delivered a block, so Bitcoin Cash Lab watches each peer's received block-message bytes (`cmpctblock` + `block`). Peers whose counters grew since just after the previous block are credited First for the new one; several peers can tie. Nodes that do report `last_block` (Bitcoin Core style) are matched to the block event by that timestamp instead.
 
 Two peers can both be credited: BCHN notes each peer's last new block only to the second, so Bitcoin Cash Lab credits every peer whose time falls within a short window around the arrival – if another peer's falls there too, both get a First. On my node that happened once in 2,328 blocks (0.04%), and no block was left uncredited. Your own count stands in the dashboard's status line.
 

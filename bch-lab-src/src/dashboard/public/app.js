@@ -139,9 +139,11 @@ const KIND_RULES = [
   // Mining pool software speaking p2p, or a node whose operator says in the
   // bracketed comment that it belongs to a pool. Relays.
   [/ckp2p|ckpool|\([^)]*pool[^)]*\)/i, null],
-  // Bitcoin Classic's "(EB8)" is Bitcoin Cash's block size; SuperBitcoin,
-  // Irium and VDS are forks and altcoins of their own.
-  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds_/i, 'a client of another chain'],
+  // Other chains' clients. "(EB32.0)" is NOT a tell here: on Bitcoin Cash every
+  // BCHN peer announces its excessive block size that way, so matching it
+  // flagged the whole network. SuperBitcoin, Irium and VDS are forks and
+  // altcoins of their own.
+  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|SuperBitcoin|iriumd|vds_/i, 'a client of another chain'],
   // Scanners run as a service and scanners run by universities - the second
   // kind announces itself with its department's domain.
   [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-/i, 'a research scanner'],

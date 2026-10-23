@@ -3,7 +3,7 @@ id: kyle-bch-lab
 category: bitcoin
 name: Bitcoin Cash Lab
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bch-lab-icon.svg
-version: "0.1.1"
+version: "0.2.0"
 tagline: See which peers bring your Bitcoin Cash node new blocks first
 description: >-
   Your peers decide how soon your Bitcoin Cash node hears about a new block. Bitcoin Cash Lab notes, for every block, which peer delivered it first and ranks your peers by it.
@@ -20,7 +20,7 @@ description: >-
 
   For AxeBCH, host, ports and user are built in; you enter its per-install RPC password (the app tells you where to find it). Early release: not yet run against a live BCH node. Based on the MIT-licensed Bitcoin Lab by benunskilled.
 releaseNotes: >-
-  AxeBCH preset corrected from WillItMod's own compose files (RPC 28332, user bch, ZMQ 28334, pool ckpool:3333); you only enter its RPC password. Choose the node software on the dashboard, with connection testing and auto-detect.
+  Fixes First % staying at 0 on Bitcoin Cash Node: BCHN does not report which peer delivered a block, so the app now measures it from each peer's block-message bytes. Peers are also no longer mislabelled as another chain's client. After updating, use Storage > Reset peer data.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies: []

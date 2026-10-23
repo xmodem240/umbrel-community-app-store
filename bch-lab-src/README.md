@@ -15,7 +15,7 @@ nothing else to it.
 ## What it does
 
 - **Peer relay ranking** - for every new block, records which peer delivered it first
-  (ZMQ `hashblock` timestamp vs. each peer's `last_block` in `getpeerinfo`) and ranks
+  (which peers delivered each new block: `last_block` where the node reports it, otherwise growth of each peer's block-message bytes, as on BCHN) and ranks
   peers by First / Eligible.
 - **Manual peers** - keeps the best peers via `addnode`, re-asserting them after a node
   restart. Optional automatic rotation (off by default).

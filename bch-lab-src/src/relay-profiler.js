@@ -10,12 +10,17 @@
  * can never pollute the measurement.
  *
  * Right after the timestamp, exactly one getpeerinfo snapshot is taken.
- * BCHN's getpeerinfo exposes `last_block`: the unix-second
- * timestamp of the last block received FROM that peer. A peer whose
- * last_block falls within a short window of the ZMQ detection instant is
- * the peer that actually delivered this block to us - that is the "First"
- * signal. Every peer present in the same snapshot is "Eligible" (it was
- * connected and could in principle have delivered the block).
+ * Every peer present in it is "Eligible" (it was connected and could in
+ * principle have delivered the block). Which peers are "First" depends on what
+ * the node reports:
+ *
+ *  - Bitcoin Core style (`last_block` present): the unix-second timestamp of
+ *    the last block received FROM that peer. A peer whose last_block falls
+ *    within a short window of the ZMQ detection instant delivered this block.
+ *  - BCHN (no `last_block`; read from its source): the peers whose received
+ *    block-message bytes (`bytesrecv_per_msg`) grew since a baseline taken
+ *    after the previous block. See lib/delivery-bytes.js for the method and
+ *    its limits.
  */
 
 const config = require('./lib/config');
@@ -26,6 +31,7 @@ const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
 const poolId = require('./lib/pool-id');
 const stratumRace = require('./lib/stratum-race-toggle');
+const deliveryBytes = require('./lib/delivery-bytes');
 const logger = require('./lib/logger').make('relay-profiler');
 
 // A peer counts as "first" if BCHN recorded a block from it within this
@@ -102,10 +108,10 @@ function nearestLastBlockDeltaMs(peers, detectedAtMs) {
  * that is the one the block most plausibly came over. Null when none was
  * credited or BCHN reported no ping.
  */
-function firstPeerPingMs(peers, detectedAtMs) {
+function firstPeerPingMs(peers, detectedAtMs, firstIds = null) {
   let best = null;
   for (const p of peers) {
-    if (!isFirstPeer(p, detectedAtMs)) continue;
+    if (!(firstIds ? firstIds.has(p.id) : isFirstPeer(p, detectedAtMs))) continue;
     const s = typeof p.minping === 'number' ? p.minping : (typeof p.pingtime === 'number' ? p.pingtime : null);
     if (s == null) continue;
     const ms = s * 1000;
@@ -114,7 +120,12 @@ function firstPeerPingMs(peers, detectedAtMs) {
   return best;
 }
 
-function recordRace({ blockHash, detectedAtMs, peers }) {
+/**
+ * `firstIds`, when given, is the set of peer ids credited by the byte-counter
+ * method (BCHN); without it the Core-style last_block window decides. In that
+ * case there is no clock to compare, so nearest_delta_ms stays NULL.
+ */
+function recordRace({ blockHash, detectedAtMs, peers, firstIds = null }) {
   const database = db.instance;
 
   const insertRace = database.prepare(
@@ -125,8 +136,9 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
     `INSERT OR IGNORE INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)`,
   );
 
-  const firstCount = peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
-  const nearestDeltaMs = nearestLastBlockDeltaMs(peers, detectedAtMs);
+  const isFirst_ = (p) => (firstIds ? firstIds.has(p.id) : isFirstPeer(p, detectedAtMs));
+  const firstCount = peers.filter(isFirst_).length;
+  const nearestDeltaMs = firstIds ? null : nearestLastBlockDeltaMs(peers, detectedAtMs);
 
   const tx = database.transaction(() => {
     const info = insertRace.run(
@@ -134,7 +146,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
       detectedAtMs,
       firstCount,
       nearestDeltaMs === null ? null : Math.round(nearestDeltaMs),
-      firstPeerPingMs(peers, detectedAtMs),
+      firstPeerPingMs(peers, detectedAtMs, firstIds),
     );
     if (info.changes === 0) {
       // Already recorded (duplicate ZMQ delivery / reconnect replay) - skip.
@@ -143,7 +155,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
     const raceId = info.lastInsertRowid;
     for (const peer of peers) {
       const peerRow = db.getOrCreatePeer(peer.addr);
-      const isFirst = isFirstPeer(peer, detectedAtMs);
+      const isFirst = isFirst_(peer);
       // peer_relay_stats (the rollup peerRanking reads instead of aggregating
       // this table on every request) is updated by a database trigger on this
       // insert, in this same transaction - see db.js. Nothing to do here.
@@ -316,7 +328,44 @@ function stratumRaceOn() {
 const CATCHUP_TAIL_MS = 30 * 1000;
 let lastCatchUpAt = null;
 
-async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
+// BCHN attribution (lib/delivery-bytes.js): every peer's block-byte counters as
+// they stood a while after the previous block. Taken after SETTLE_MS rather than
+// at the block itself, so the duplicate copies that high-bandwidth peers send
+// moments after a block are already in the baseline and are not credited to the
+// next one.
+const BASELINE_SETTLE_MS = 20 * 1000;
+let baseline = null;
+let baselineTimer = null;
+
+async function refreshBaseline(reason) {
+  try {
+    const peers = await rpc.getPeerInfo();
+    if (!deliveryBytes.reportsBlockBytes(peers)) return;
+    baseline = deliveryBytes.takeBaseline(peers, Date.now());
+    logger.debug('delivery baseline taken', { reason, peers: baseline.bytes.size });
+  } catch (err) {
+    logger.warn('could not take the delivery baseline', { reason, error: err.message });
+  }
+}
+
+function scheduleBaseline(reason, delayMs = BASELINE_SETTLE_MS) {
+  if (baselineTimer) clearTimeout(baselineTimer);
+  baselineTimer = setTimeout(() => { baselineTimer = null; refreshBaseline(reason); }, delayMs);
+  if (baselineTimer.unref) baselineTimer.unref();
+}
+
+async function handleHashBlock(event) {
+  try {
+    await handleHashBlockInner(event);
+  } finally {
+    // Whatever happened to this block - counted, skipped as part of a catch-up,
+    // or failed - the next one is measured against how the peers stand a little
+    // after it. Only matters to the byte-counter method; harmless otherwise.
+    scheduleBaseline('after block');
+  }
+}
+
+async function handleHashBlockInner({ blockHash, detectedAtMs, t0 }) {
   const template = stratumRaceOn() ? timeTemplate(detectedAtMs) : Promise.resolve(null);
   let peers;
   let chain;
@@ -361,9 +410,26 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
     return;
   }
 
+  // Which way to credit First: the node's own last_block when it reports one,
+  // otherwise the growth of each peer's block-message bytes since the baseline.
+  let firstIds = null;
+  if (!deliveryBytes.reportsLastBlock(peers)) {
+    if (!deliveryBytes.reportsBlockBytes(peers)) {
+      logger.error('this node reports neither last_block nor per-message byte counters - First cannot be measured', { blockHash });
+      return;
+    }
+    if (!baseline) {
+      // Just started: nothing to compare against. Counting the block anyway
+      // would add an Eligible to every peer and a First to none.
+      logger.info('block not counted - no delivery baseline yet (the first block after a start)', { blockHash });
+      return;
+    }
+    firstIds = deliveryBytes.creditedSince(peers, baseline);
+  }
+
   let raceId;
   try {
-    raceId = recordRace({ blockHash, detectedAtMs, peers });
+    raceId = recordRace({ blockHash, detectedAtMs, peers, firstIds });
   } catch (err) {
     // Before v1.12.0 this call sat outside any try/catch inside a
     // fire-and-forget async function, so a SQLite write failing here (a lock
@@ -382,12 +448,13 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
     return;
   }
 
-  const firstCount = peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
+  const firstCount = firstIds ? firstIds.size : peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
   logger.info('block race recorded', {
     blockHash,
     eligible: peers.length,
     first: firstCount,
-    nearestLastBlockMs: nearestLastBlockDeltaMs(peers, detectedAtMs),
+    method: firstIds ? 'block bytes' : 'last_block',
+    nearestLastBlockMs: firstIds ? null : nearestLastBlockDeltaMs(peers, detectedAtMs),
     processingMs: Number(elapsedMs.toFixed(2)),
   });
 
@@ -409,6 +476,9 @@ function main() {
   let subscription;
   processGuard.install(logger, { onShutdown: () => subscription && subscription.stop() });
   db.open();
+  // The first block after a start has nothing to be measured against unless a
+  // baseline exists already.
+  scheduleBaseline('startup', 3000);
   const list = poolId.size();
   logger.info('starting', {
     zmq: config.bitcoin.zmqHashBlockUrl,

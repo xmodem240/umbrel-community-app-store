@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- **Fix: works on BCHN.** BCHN's `getpeerinfo` has no `last_block`, so no peer was ever credited
+  First (FIRST % stayed 0, red "no peer credited" banner). First is now credited from per-peer
+  block-message byte counters when `last_block` is absent.
+- `connection_type`, `network` and `servicesnames` are derived when BCHN omits them, so peers are no
+  longer typed "unknown" and the rotation can tell manual/inbound/outbound apart.
+- Fix: every BCHN peer was labelled "a client of another chain" because of its `(EB32.0)` user agent.
+- `scripts/check-node.js` reports which attribution method the node supports.
+- After upgrading, use Storage -> Reset peer data: earlier races have no First credits.
+
 ## 0.1.1
 
 - AxeBCH preset corrected from WillItMod's own compose files: node `willitmod-dev-bch_bchn_1`, RPC 28332, user `bch`,

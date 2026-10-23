@@ -3,6 +3,7 @@
 const http = require('http');
 const { URL } = require('url');
 const config = require('./config');
+const { normalisePeers } = require('./peer-compat');
 
 /**
  * Minimal BCHN JSON-RPC client. No dependency, no cookie-file
@@ -249,7 +250,8 @@ module.exports = {
   timeCall,
   agent,
   clockOffset,
-  getPeerInfo: () => call('getpeerinfo'),
+  // Normalised: BCHN's peer objects lack connection_type, network and servicesnames (lib/peer-compat.js).
+  getPeerInfo: async () => normalisePeers(await call('getpeerinfo')),
   getBlockHeader: (hash) => call('getblockheader', [hash]),
   // Verbosity 1 is the cheap shape: the header's fields plus the list of
   // transaction IDs. The coinbase is tx[0], and getrawtransaction reads it out
