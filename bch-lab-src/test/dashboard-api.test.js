@@ -101,7 +101,7 @@ test('a stale heartbeat is reported as unhealthy', async () => {
   assert.ok(body.services['stratum-race'].ageMs > 120000);
 });
 
-test('GET /api/events streams the current block immediately and stays open', async () => {
+test('GET /api/events streams the current block immediately', async () => {
   const raceId = db.instance
     .prepare('INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)')
     .run('00000000000000000000feedface', 912345, Date.now()).lastInsertRowid;
@@ -470,4 +470,26 @@ test('the rotation and stratum switches take only true or false', async () => {
     assert.equal(off.status, 200);
     assert.equal(off.body.enabled, false);
   }
+});
+
+test('a body that is valid JSON but no object is a 400, not a 500', async () => {
+  for (const raw of ['null', '5', '[]', '"x"']) {
+    // eslint-disable-next-line no-await-in-loop
+    const { status } = await api('/api/peers/keep', { method: 'POST', body: raw });
+    assert.equal(status, 400, `${raw} must be refused as a bad body`);
+  }
+});
+
+test('the lock wants a real true or false, not a string', async () => {
+  // Boolean("false") is true: the string used to lock the peer.
+  const { status, body } = await api('/api/peers/keep', {
+    method: 'POST', body: JSON.stringify({ address: '198.51.100.250:8333', kept: 'false' }),
+  });
+  assert.equal(status, 400);
+  assert.match(body.error, /true or false/);
+});
+
+test('deleting a pool that does not exist says so', async () => {
+  const { status } = await api('/api/pools/987654', { method: 'DELETE' });
+  assert.equal(status, 404);
 });

@@ -4,7 +4,7 @@ Once a candidate has been observed for at least 50 of the last 500 blocks withou
 
 A peer needs enough observations to show what it can do. But waiting too long means a strong candidate may disappear before Bitcoin Cash Lab gets the chance to keep it.
 
-The threshold used to be 144 blocks, roughly a day. On my node, a peer delivering 15% of blocks was observed for twenty hours, then dropped by BCHN before it became eligible for promotion.
+The threshold used to be 144 blocks, roughly a day. On the original Bitcoin Lab author's Bitcoin Core node, a peer delivering 15% of blocks was observed for twenty hours, then dropped by BCHN before it became eligible for promotion.
 
 The default is now 50 blocks, roughly eight hours. This gives promising peers an earlier chance to earn a manual slot and keeps the search moving when a candidate never delivers first.
 

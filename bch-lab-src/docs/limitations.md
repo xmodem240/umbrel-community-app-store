@@ -4,7 +4,7 @@
 
 Peer observations are kept so delivery history remains available. The 500-block ranking window does not limit how much history is stored.
 
-On my node with around 200 peers, this data grew by about 4 MB per day, or roughly 1.5 GB per year (measured in October 2026). The Storage panel shows current usage and lets you clear measurements while keeping your manual selection.
+On the original Bitcoin Lab author's Bitcoin Core node with around 200 peers, this data grew by about 4 MB per day, or roughly 1.5 GB per year (measured in October 2026; expect similar on Bitcoin Cash, not yet measured). The Storage panel shows current usage and lets you clear measurements while keeping your manual selection.
 
 ## Running BCHN on another machine
 

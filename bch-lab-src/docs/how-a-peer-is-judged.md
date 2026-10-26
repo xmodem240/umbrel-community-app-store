@@ -27,7 +27,7 @@ Bitcoin Cash Lab listens for new blocks through BCHN's ZMQ interface and records
 
 BCHN does not report which peer delivered a block, so Bitcoin Cash Lab watches each peer's received block-message bytes (`cmpctblock` + `block`). Peers whose counters grew since just after the previous block are credited First for the new one; several peers can tie. Nodes that do report `last_block` (Bitcoin Core style) are matched to the block event by that timestamp instead.
 
-Two peers can both be credited: BCHN notes each peer's last new block only to the second, so Bitcoin Cash Lab credits every peer whose time falls within a short window around the arrival – if another peer's falls there too, both get a First. On my node that happened once in 2,328 blocks (0.04%), and no block was left uncredited. Your own count stands in the dashboard's status line.
+If two peers deliver within the same few milliseconds, BCHN's byte counters cannot put one ahead of the other, so both are credited and the block counts as shared. Expect this fairly often. On nodes that report `last_block` (Bitcoin Core style) the timestamp is only to the second: two peers inside the window mean the block before arrived a moment earlier and one of the times belongs to it. Which cannot be told apart, so neither gets a First and the block counts as unclear. Your own counts stand in the dashboard's status line.
 
 Blocks your node fetches while catching up after being offline are not counted: they arrive several a second from many peers and say nothing about who relays a new block quickly.
 

@@ -125,52 +125,60 @@ function stratumForBlock(blockHash) {
 }
 
 /**
- * How often two peers were credited with the same block.
+ * How many blocks could not be credited to one peer.
  *
- * First comes from BCHN's `last_block`, a Unix timestamp in whole seconds.
- * Two connections that hand the same block over inside one second cannot be
- * told apart, so both are credited - and both keep the credit rather than
- * sharing half of one, which is why First counts across a whole peer set can
- * add up to slightly more than the number of blocks.
+ * With Bitcoin Core-style last_block (set only when the block was new to the
+ * node, but in whole seconds) each block belongs to exactly one connection.
+ * When another block arrives moments apart, two peers match and nothing here
+ * can tell which last_block belongs to which block. In that case neither is
+ * credited (relay-profiler.js); the block is kept and counted here. Blocks
+ * recorded before first_count existed have no count, so for those the doubled
+ * First rows are what says so.
  *
- * How often that happens is a property of the node, not of this app: it
- * depends on how tightly the first copies of a block arrive, which is a
- * question of where the node sits and who it is connected to. Measured on the
- * node this app is built against it is close to never - 2 of 2,206 blocks over
- * sixteen days - but there is no reason to believe that number travels, which
- * is exactly why it is counted here rather than written into the docs as a
- * constant.
+ * BCHN reports no last_block, so there First is read from block-message byte
+ * counters (lib/delivery-bytes.js). Several peers can deliver within the same
+ * few milliseconds and then ALL are credited and first_count says how many -
+ * a shared First, not an unclear one. Those rows are told apart from unclear
+ * ones by their First rows: a shared block has them, an unclear one has none.
  *
- * Lifetime rather than a recent window: at this rate a 500-block window would
- * read zero almost always, and a number that never says anything else is not
- * worth the space it takes.
+ * A property of the node rather than of the app: close to never on one that
+ * runs steadily (3 of 4,994 blocks on the node this was written for, each
+ * with another block 1-2 s away).
  *
- * Returns null before the first block is recorded - a fresh install has
- * nothing to report and should not show "0 in 0".
- *
- * Cached against the newest block like routeMedian() below, because it is
- * asked on every /api/status poll and both halves of it are counts over tables
- * that only ever grow - and a tie is recorded with the block or not at all, so
- * between two blocks there is nothing new to count.
+ * Lifetime rather than a recent window, and null before the first block - a
+ * fresh install should not show "0 in 0". Cached against the newest block,
+ * because it is asked on every /api/status poll and only a block changes it.
  */
-let tiesCache = { raceId: null, value: null };
+let unclearCache = { raceId: null, value: null };
 
-function firstTies() {
+function unclearFirsts() {
   const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
   if (newest == null) return null;
-  if (tiesCache.raceId === newest) return tiesCache.value;
+  if (unclearCache.raceId === newest) return unclearCache.value;
 
   const races = db.instance.prepare(`SELECT COUNT(*) AS n FROM relay_race`).get().n;
-  const ties = db.instance
+  // Unclear: nobody was credited although more than one peer matched
+  // (last_block method), or - for blocks recorded before first_count existed -
+  // more than one First row.
+  const unclear = db.instance
     .prepare(
-      `SELECT COUNT(*) AS n FROM (
-         SELECT race_id FROM relay_observation WHERE first = 1
-          GROUP BY race_id HAVING COUNT(*) > 1
-       )`,
+      `SELECT COUNT(*) AS n FROM relay_race r
+        WHERE (r.first_count > 1
+               AND NOT EXISTS (SELECT 1 FROM relay_observation o WHERE o.race_id = r.id AND o.first = 1))
+           OR (r.first_count IS NULL
+               AND (SELECT COUNT(*) FROM relay_observation o WHERE o.race_id = r.id AND o.first = 1) > 1)`,
     )
     .get().n;
-  const value = { races, ties };
-  tiesCache = { raceId: newest, value };
+  // Shared: several peers credited for the same block (byte-counter method).
+  const shared = db.instance
+    .prepare(
+      `SELECT COUNT(*) AS n FROM relay_race r
+        WHERE r.first_count > 1
+          AND EXISTS (SELECT 1 FROM relay_observation o WHERE o.race_id = r.id AND o.first = 1)`,
+    )
+    .get().n;
+  const value = { races, unclear, shared };
+  unclearCache = { raceId: newest, value };
   return value;
 }
 
@@ -199,9 +207,16 @@ function median(xs) {
 }
 
 function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
-  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
-  if (newest == null) return null;
-  const key = `${newest}:${limit}`;
+  // The newest block is written in steps - template time and the stratum race
+  // land after the block itself - so the key follows those too, or the
+  // newest block stayed out of the median until the next one came.
+  const head = db.instance
+    .prepare(`SELECT id, template_ms IS NOT NULL AS t, first_ping_ms IS NOT NULL AS p,
+                     (SELECT MAX(rowid) FROM stratum_observation) AS obs
+                FROM relay_race ORDER BY id DESC LIMIT 1`)
+    .get();
+  if (!head) return null;
+  const key = `${head.id}:${head.t}:${head.p}:${head.obs}:${limit}`;
   if (routeCache.key === key) return routeCache.value;
 
   const races = db.instance
@@ -350,6 +365,6 @@ function attributionHealth() {
 }
 
 module.exports = {
-  latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, firstTies, attributionHealth,
+  latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, unclearFirsts, attributionHealth,
   ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };

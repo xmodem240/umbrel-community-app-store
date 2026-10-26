@@ -143,7 +143,9 @@ function readAddress(res, address) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let raw = '';
+    // Bytes first, text at the end: a chunk can end in the middle of a
+    // multi-byte character, which decoding each chunk on its own would break.
+    const chunks = [];
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
@@ -152,15 +154,25 @@ function readBody(req) {
         req.destroy();
         return;
       }
-      raw += chunk;
+      chunks.push(chunk);
     });
     req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) return resolve({});
+      let body;
       try {
-        resolve(JSON.parse(raw));
+        body = JSON.parse(raw);
       } catch (err) {
         reject(new Error('invalid JSON body'));
+        return;
       }
+      // Every route reads fields off an object: null, a number or a list
+      // would only fail later, as a 500.
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        reject(new Error('invalid JSON body'));
+        return;
+      }
+      resolve(body);
     });
     req.on('error', reject);
   });
@@ -276,6 +288,20 @@ const SSE_KEEPALIVE_MS = 25_000;
 // that nobody reaches it by using the app, and small enough that the timers and
 // sockets behind it stay trivial.
 const MAX_SSE_CLIENTS = 32;
+// How long one stream is kept before the server ends it itself.
+//
+// A closed tab does not always reach this process: on Umbrel every request
+// goes through the app proxy, and a stream whose tab is gone can stay open on
+// the proxy's side with nothing at the other end. The keepalive below is still
+// accepted, so the 'close' handler never runs and the slot stays taken until
+// the app restarts - seen on a real node, where all 32 filled up and every
+// newly opened page was refused and never saw a block wave again.
+//
+// Ending each stream after a while frees such a slot within minutes. A page
+// that is still open loses nothing: EventSource reconnects by itself, the
+// current block is replayed on connect, and the page only plays the wave for
+// a block it had not seen. Overridable only so the tests need not wait.
+const SSE_MAX_AGE_MS = Number(process.env.SSE_MAX_AGE_MS) || 10 * 60 * 1000;
 // The pool a block was mined by arrives a moment after the race itself (the
 // relay profiler reads the coinbase once the race is written), so the same
 // race is worth sending twice: once when it lands, once when it has a name.
@@ -342,19 +368,27 @@ function handleEventStream(req, res) {
     logger.debug('initial block event failed', { error: err.message });
   }
 
+  const cleanup = () => {
+    clearInterval(keepalive);
+    clearTimeout(maxAge);
+    sseClients.delete(res);
+  };
+
   const keepalive = setInterval(() => {
     try {
       res.write(': keepalive\n\n');
     } catch {
-      clearInterval(keepalive);
+      cleanup();
     }
   }, SSE_KEEPALIVE_MS);
   keepalive.unref?.();
 
-  const cleanup = () => {
-    clearInterval(keepalive);
-    sseClients.delete(res);
-  };
+  const maxAge = setTimeout(() => {
+    cleanup();
+    try { res.end(); } catch { /* client already gone */ }
+  }, SSE_MAX_AGE_MS);
+  maxAge.unref?.();
+
   req.on('close', cleanup);
   req.on('error', cleanup);
 }
@@ -490,10 +524,9 @@ function poolRange(raw) {
   if (raw === null || raw === '') return '10';
   if (raw === 'all') return 'all';
   const n = Number(raw);
-  // Anything unrecognisable is passed through untouched: stratumRanking() has
-  // its own rule for that (fail open to all-time), and it is not this
-  // function's business to change it.
-  if (!Number.isFinite(n) || n <= 0) return raw;
+  // Anything unrecognisable gets the default view. It used to fall through to
+  // all-time, the one expensive answer, for any typo in the query string.
+  if (!Number.isFinite(n) || n <= 0) return '10';
   return String(Math.min(Math.floor(n), MAX_POOL_RANGE));
 }
 
@@ -607,11 +640,10 @@ async function router(req, res, pathname, url) {
       // a couple of hundred peers, measured. Shown so that is visible from the
       // start rather than discovered when the disk fills.
       databaseBytes: db.sizeBytes(),
-      // How many recorded blocks credited more than one peer - the resolution
-      // of the First measurement, stated rather than assumed. Cheap because of
-      // the partial index on the First rows; null on an install that has not
-      // seen a block yet.
-      firstTies: queries.firstTies(),
+      // How many recorded blocks could not be credited to one peer, stated
+      // rather than assumed. Counted once per block (cached); null on an
+      // install that has not seen a block yet.
+      unclearFirsts: queries.unclearFirsts(),
       // Four counts over the whole history, not the current snapshot: how many
       // outbound peers BCHN has handed this node, how many lasted long enough
       // to be judged, how many ever delivered, how many were kept. Cheap - one
@@ -816,7 +848,7 @@ async function router(req, res, pathname, url) {
     const { address, label } = await readBody(req);
     if (!readAddress(res, address)) return true;
     const host = hostFromAddress(address);
-    const result = await manualAddPeer(host, label);
+    const result = await manualAddPeer(host, typeof label === 'string' ? label.slice(0, 64) : undefined);
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
@@ -827,9 +859,10 @@ async function router(req, res, pathname, url) {
   if (req.method === 'POST' && pathname === '/api/peers/keep') {
     const { address, kept } = await readBody(req);
     if (!readAddress(res, address)) return true;
-    const changed = peerSync.setKept(address, Boolean(kept));
+    if (typeof kept !== 'boolean') return sendJson(res, 400, { error: 'kept must be true or false' });
+    const changed = peerSync.setKept(address, kept);
     if (!changed) return sendJson(res, 404, { error: 'not a manual peer' });
-    return sendJson(res, 200, { ok: true, address, kept: Boolean(kept) });
+    return sendJson(res, 200, { ok: true, address, kept });
   }
 
   if (req.method === 'GET' && pathname === '/api/rotation') {
@@ -903,11 +936,14 @@ async function router(req, res, pathname, url) {
   if (poolMatch && (req.method === 'PATCH' || req.method === 'DELETE')) {
     const id = Number(poolMatch[1]);
     if (req.method === 'DELETE') {
+      let removed;
       try {
-        queries.deletePool(id);
+        removed = queries.deletePool(id);
       } catch (err) {
-        return sendJson(res, 500, { ok: false, error: err.message });
+        logger.error('deleting a pool failed', { id, error: err.message });
+        return sendJson(res, 500, { ok: false, error: 'internal error' });
       }
+      if (!removed) return sendJson(res, 404, { ok: false, error: 'no such pool' });
       return sendJson(res, 200, { ok: true });
     }
     const body = await readBody(req);
@@ -991,6 +1027,7 @@ function main() {
       for (const res of sseClients) {
         try { res.end(); } catch { /* client already gone */ }
       }
+      sseClients.clear(); // so a late broadcast cannot write to an ended stream
       server.close();
     },
   });

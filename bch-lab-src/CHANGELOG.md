@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0
+
+Brings in the upstream Bitcoin Lab changes from 1.26.0 up to 2.0.5 (merged file by file, with the BCH changes kept).
+
+- **New dashboard design:** four tiles in the header, tables that turn into cards on phones, "never first"
+  instead of a strike-through, First % shown as the rate over the last 500 blocks, only Storage folds.
+- **⚡ and 📡 markers:** ⚡ is a peer BCHN has chosen to send it new blocks unasked (high-bandwidth); 📡 is a peer
+  that has chosen *your* node that way. The heading counts them.
+- **Reliability:** the live block stream could fill its 32 slots behind Umbrel's app proxy and then show no more
+  blocks; streams now end after 10 minutes and reconnect. An RPC call no longer hangs when the node restarts
+  mid-reply. A busy database on one tick no longer stops the Stratum worker. Blocks arriving seconds apart no
+  longer trigger a template request. Stricter checks on what the dashboard accepts.
+- **Rotation:** no kicks unless most recent blocks were credited to someone, and at most two per pass; a manual
+  peer replaced while still connected is not parked; a returning parked peer is added before the weakest leaves
+  (a refused add no longer empties the slot); parked peers are not probed directly when the node uses a proxy;
+  the rotation log records every manual add.
+- **Storage:** inbound peers that never delivered first are forgotten after 30 days away
+  (`NEVER_FIRST_PEER_RETENTION_DAYS`).
+- **Shared vs unclear:** on BCHN, peers that deliver within the same few milliseconds are all credited and the
+  status line counts those blocks as "shared"; "unclear" is for nodes that report `last_block`, where two matches
+  mean neither is credited.
+- Docs: measurements and "my node" remarks in the docs came from the original author's Bitcoin Core node. They are
+  now attributed to it, and `docs/measured.md` says no Bitcoin Cash measurements exist yet.
+- Docker base image updated to the Node 22 build with the October 2026 security fixes.
+
 ## 0.2.2
 
 - Fix: log flooded with "pool rejected mining.authorize ... Invalid address" for the 2Miners pools. 2Miners'

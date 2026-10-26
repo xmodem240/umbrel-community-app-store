@@ -2,7 +2,7 @@
 
 A newly promoted peer gets a grace period of 50 blocks in its manual slot. During that time, rotation will not replace it with a stronger candidate.
 
-The count starts at promotion. Without this fresh grace period, two closely ranked peers could repeatedly replace each other before either had time to establish its performance in the slot. That happened on my node: two peers traded the same place for hours.
+The count starts at promotion. Without this fresh grace period, two closely ranked peers could repeatedly replace each other before either had time to establish its performance in the slot. That happened on the original Bitcoin Lab author's Bitcoin Core node: two peers traded the same place for hours.
 
 The grace period prevents those unnecessary swaps. If the peer goes offline, the [parking rules](parking.md) determine how long its slot stays reserved.
 

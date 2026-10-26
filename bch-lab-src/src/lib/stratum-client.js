@@ -49,6 +49,9 @@ const PREVHASH_RE = /^[0-9a-fA-F]{64}$/;
  *   'heartbeat' ({ connectedMs, notifyCount, authorized }) - periodic status
  *   'connect' / 'disconnect' (err?)
  */
+// How long a connection has to last before the reconnect wait starts over.
+const HELD_MS = 60_000;
+
 class StratumPoolConnection extends EventEmitter {
   constructor({ host, port, label, idleTimeoutMs = 6 * 60 * 60 * 1000, authorizeAddress = '1BitcoinEaterAddressDontSendf59kuE' }) {
     super();
@@ -85,6 +88,7 @@ class StratumPoolConnection extends EventEmitter {
 
   stop() {
     this.stopped = true;
+    clearTimeout(this._reconnectTimer);
     if (this.socket) this.socket.destroy();
   }
 
@@ -160,7 +164,13 @@ class StratumPoolConnection extends EventEmitter {
       this._stopHeartbeat();
       this.emit('disconnect');
       if (!this.stopped) {
-        setTimeout(() => this._connect(), this.reconnectDelayMs);
+        // The wait starts over after a connection that held (a pool that
+        // accepts and drops at once is otherwise redialled every 2 seconds),
+        // or once a login was accepted / a job arrived (see authorizeResult).
+        if (this._connectedAt && Date.now() - this._connectedAt >= HELD_MS) this.reconnectDelayMs = 2000;
+        this._connectedAt = null;
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = setTimeout(() => this._connect(), this.reconnectDelayMs);
         this.reconnectDelayMs = this._nextDelayMs();
       }
     });
@@ -222,6 +232,7 @@ class StratumPoolConnection extends EventEmitter {
     } catch {
       return; // ignore malformed/partial lines from misbehaving pools
     }
+    if (!msg || typeof msg !== 'object') return; // "null", a bare number: not a message
     if (msg.method === 'mining.notify' && Array.isArray(msg.params) && msg.params.length >= 9) {
       const [, prevhash, , , , , , , cleanJobs] = msg.params;
       if (typeof prevhash !== 'string' || !PREVHASH_RE.test(prevhash)) {

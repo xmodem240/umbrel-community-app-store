@@ -77,7 +77,7 @@
     </details>
 
     <!--
-      Deliberately a plain section, not a <details> like the panels below.
+      Deliberately a plain section, not a <details>.
       This one already had its own top-10/show-all control, and having a
       second, outer collapse on top of it meant the same word - "collapse" -
       did two different things a few pixels apart: one narrowed the list, the
@@ -91,13 +91,13 @@
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client">Client</th>
+              <th class="col-client" data-drop="5">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping">Ping</th>
-              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total">Total Time</th>
-              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-ping" data-drop="4">Ping</th>
+              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
@@ -109,8 +109,8 @@
       </div>
     </section>
 
-    <details class="card" open>
-      <summary><h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2></summary>
+    <section class="card panel">
+      <h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2>
       <!--
         The single setting that most affects whether any of this measures what
         it claims to. Over Tor the numbers are circuit latency, not peer
@@ -121,27 +121,27 @@
       <p class="panel-note" id="outbound-note">
         <strong>For the sharpest ranking, set BCHN's outgoing connections to clearnet only.</strong>
         A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
-        app can dial back. Inbound connections over Tor or I2P are fine.
+        app can dial back. As inbound connections they are fine.
       </p>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client">Client</th>
+              <th class="col-client" data-drop="5">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping">Ping</th>
-              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total">Total Time</th>
-              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-ping" data-drop="4">Ping</th>
+              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-    </details>
+    </section>
 
     <!--
       Its own section, sitting directly above the panel it writes into. It used
@@ -161,9 +161,8 @@
         finding anyone new.
       -->
       <p class="panel-note">
-        <strong>Add &amp; Keep</strong> adds a peer as manual and protects it from the rotation - the
-        lock in the list below switches that off. <strong>Caution:</strong> with all eight locked,
-        the rotation has nothing left to promote.
+        <strong>Add &amp; Keep</strong> makes a peer manual and protects it from the rotation; the lock
+        below undoes that. <strong>Caution:</strong> with all eight locked, the rotation can't promote anyone.
       </p>
       <form id="manual-add-form" class="inline-form">
         <input
@@ -180,30 +179,30 @@
       <div id="manual-add-result" class="hint"></div>
     </section>
 
-    <details class="card" open>
-      <summary><h2>Manual Peers <span id="manual-slots" class="hint"></span></h2></summary>
+    <section class="card panel">
+      <h2>Manual Peers <span id="manual-slots" class="hint"></span></h2>
       <div class="table-wrap">
         <table id="manual-peer-table" class="peer-table">
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client">Client</th>
+              <th class="col-client" data-drop="5">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping">Ping</th>
-              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total">Total Time</th>
-              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-ping" data-drop="4">Ping</th>
+              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-    </details>
+    </section>
 
-    <details class="card" open>
-      <summary><h2>Peer Rotation</h2></summary>
+    <section class="card panel">
+      <h2>Peer Rotation</h2>
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
@@ -219,14 +218,14 @@
       <div class="rotation-hint">
         <p>Every ~10 minutes, at most one promotion per pass:</p>
         <ul>
-          <li>Makes the best peer that really delivers manual - into a free slot, or in place of a manual peer it clearly beats.</li>
-          <li>Drops an outbound peer that has been connected through 50 of the last 500 blocks without delivering one first. BCHN replaces it with a new random one.</li>
-          <li>Frees the slot of a manual peer that has gone offline. The better its record, the longer it keeps the slot first.</li>
+          <li>Promotes the best deliverer to manual, into a free slot or in place of a weaker one.</li>
+          <li>Drops an outbound peer that was connected for 50 of the last 500 blocks without delivering one first; BCHN picks a new one.</li>
+          <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
         </ul>
-        <p>A new slot holder is safe for its first 50 blocks. A peer that loses a slot is parked below, re-tested, and back as soon as it answers.</p>
+        <p>New slot holders are safe for 50 blocks. Peers that lose their slot while offline are parked below and come back when they answer.</p>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
-        <h3>Parked <span class="hint">peers that lost their slot while offline - still being tested, back as soon as they answer</span></h3>
+        <h3>Parked</h3>
         <div class="table-wrap">
           <table id="parked-peer-table" class="peer-table">
             <thead>
@@ -234,9 +233,6 @@
                 <th class="col-address">Address</th>
                 <th class="col-pct">First %</th>
                 <th>Parked</th>
-                <th>Last tested</th>
-                <th>Failed tests</th>
-                <th>Kept until</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -251,7 +247,7 @@
               <th class="col-time">When</th>
               <th class="col-rot-action">Action</th>
               <th class="col-address">Address</th>
-              <th class="col-pct">First %</th>
+              <th class="col-pct" title="Of all the blocks this peer saw, the share it delivered first, at the time of the action. Why it was acted on is in the note.">First % (lifetime)</th>
               <th>Note</th>
             </tr>
           </thead>
@@ -259,7 +255,7 @@
         </table>
       </div>
       <button type="button" id="rotation-log-limit-toggle" class="link" hidden></button>
-    </details>
+    </section>
 
     <section class="card">
       <h2>Stratum Race</h2>
@@ -326,14 +322,14 @@
           <thead>
             <tr>
               <th>Pool</th>
-              <th>Host:Port</th>
+              <th data-drop="3">Host:Port</th>
               <th>Wins</th>
               <th>Win %</th>
               <th>Avg</th>
-              <th>Median</th>
-              <th>P90</th>
-              <th>Seen</th>
-              <th>Miss</th>
+              <th data-drop="2">Median</th>
+              <th data-drop="2">P90</th>
+              <th data-drop="1">Seen</th>
+              <th data-drop="1">Miss</th>
               <th>Enabled</th>
               <th></th>
             </tr>
@@ -345,12 +341,12 @@
     </section>
 
     <!-- What the node sends and receives, per UTC day. -->
-    <details class="card" id="traffic-card" open>
-      <summary><h2>Traffic <span id="traffic-today" class="hint"></span></h2></summary>
+    <section class="card panel" id="traffic-card">
+      <h2>Traffic</h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
-      <p class="hint" id="traffic-note">Days are UTC days, updated hourly. Counted from BCHN's own byte counters while Bitcoin Cash Lab runs; a day with no bar was not measured.</p>
-    </details>
+      <p class="hint" id="traffic-note">Updated hourly from BCHN's byte counters. No bar means not measured.</p>
+    </section>
 
     <details class="card" id="logs-card">
       <summary><h2>Logs <span id="logs-summary" class="hint"></span></h2></summary>
