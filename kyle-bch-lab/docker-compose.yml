@@ -26,7 +26,7 @@ x-node-env: &node-env
   DATA_DIR: /data
 
 x-hardening: &hardening
-  image: ghcr.io/xmodem240/bch-lab:0.3.0
+  image: ghcr.io/xmodem240/bch-lab:0.3.1
   user: "1000:1000"
   init: true
   restart: on-failure

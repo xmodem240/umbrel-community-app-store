@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1
+
+From upstream Bitcoin Lab 2.0.6:
+
+- A reload (or Back) puts you back where you were on the page, instead of at the top.
+- LICENSE: copyright line as upstream now writes it.
+
+Not taken over: 2.0.6's extra list of Bitcoin mining-pool names (ckpool-run pools). It is Bitcoin-only and
+could mislabel a Bitcoin Cash block.
+
 ## 0.3.0
 
 Brings in the upstream Bitcoin Lab changes from 1.26.0 up to 2.0.5 (merged file by file, with the BCH changes kept).
