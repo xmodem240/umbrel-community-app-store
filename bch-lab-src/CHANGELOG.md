@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+From upstream Bitcoin Lab 2.1.0:
+
+- **Security: rebuilt Node 22.23.4 base image** with the latest Debian security updates (the image is pinned
+  by digest, so it only changes when the digest is moved; it has now been moved).
+- Cards fold to their title and stay folded on this device; the page holds your place while the ranking
+  re-sorts; a jump bar takes you to Peers, Rotation, Stratum or Traffic.
+- Rows open on a tap to show their buttons (on hover with a mouse); all phone cards have the same height;
+  "never first" now stands in the First % column; the Total Time column is gone; the rotation rules wait
+  behind "How it works"; a live dot beats on each fresh answer; new peers light up once.
+- Bitcoin Purity (a Knots fork) reads as another chain.
+- The Node and Logs cards keep their own fold; they are not part of the title-fold.
+
 ## 0.3.1
 
 From upstream Bitcoin Lab 2.0.6:

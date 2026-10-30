@@ -6,7 +6,7 @@ Treat those passages as the design intent, not as verified BCHN facts.
 
 ## Upstream sync
 
-Merged from upstream Bitcoin Lab up to 2.0.6 (27 October 2026), except its Bitcoin mining-pool name list. Not taken over as is: upstream's rule that two
+Merged from upstream Bitcoin Lab up to 2.1.0 (29 October 2026), except its Bitcoin mining-pool name list. Not taken over as is: upstream's rule that two
 matching peers are *not* credited (`unclear`) applies only to nodes that report `last_block`; on BCHN's byte
 counters ties are normal and all tied peers are credited ("shared"). The rotation's safety catch counts a block
 as attributed when someone was credited. Peer Map links are off unless `PEERMAP_LINK_PORT` is set; there is no
