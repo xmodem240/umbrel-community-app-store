@@ -45,6 +45,7 @@ let RECENT_WINDOW_BLOCKS = null;
 // this app's own server (it can see the container; a browser cannot), and the
 // port is the one Peer Map's store manifest publishes.
 let PEER_MAP_INSTALLED = false;
+const PEER_MAP_PAGE = 'https://github.com/benunskilled/peer-map';
 let PEER_MAP_PORT = 8791; // the store port; a test copy passes its own (peerMapLinkPort)
 function peerMapURL(address) {
   const base = `${location.protocol}//${location.hostname}:${PEER_MAP_PORT}/`;
@@ -136,25 +137,25 @@ function statusPillClass(status) {
 // and without that rule first the word inside the brackets would have it
 // painted as an indexer.
 const KIND_RULES = [
-  // Mining pool software speaking p2p, or a node whose operator says in the
-  // bracketed comment that it belongs to a pool. Relays.
   // Core's name misspelt ("/Sat0shi:", "/Satoshi2:"): Peer Map's Disguised.
   // What it runs is unknown, so it is not struck - and it comes first, so the
   // rest of its agent is not read as a crawler or a wallet either.
   [/^\/Sat0shi:|^\/Satoshi[0-9X]+:|^Satoshi:/, null, 'whole'],
+  // Mining pool software speaking p2p, or a node whose operator says in the
+  // bracketed comment that it belongs to a pool. Relays.
   [/ckpool|^\/ckp2p:|^\/CKCoinD:|\([^)]*pool[^)]*\)|^\/P2Pool:|^\/[^:/(]*pool[^:/(]*:/i, null, 'no-mempool'],
   // Other chains' clients. "(EB32.0)" is NOT a tell here: on Bitcoin Cash every
   // BCHN peer announces its excessive block size that way, so matching it
   // flagged the whole network. SuperBitcoin, Irium and VDS are forks and
   // altcoins of their own. Bitcoin Purity, a hard fork of Knots, says
   // "/Satoshi:29.4/Purity:1.1.0/".
-  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|SuperBitcoin|iriumd|vds[_ ]|^\/Aurum:|\/Purity:/i, 'a client of another chain', 'whole'],
+  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|SuperBitcoin|iriumd|vds[_ ]|^\/Aurum:|\/Purity:|^\/dexcash-nodes:/i, 'a client of another chain', 'whole'],
   // Scanners run as a service and scanners run by universities - the second
   // kind announces itself with its department's domain.
-  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:|^\/trinetra:|^\/p2p-probe:|^\/EMPORION:|^\/rske-research:|^\/acsrg-research:|^\/dataforge-observer:/i, 'a research scanner'],
+  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:|^\/rske-research:|^\/acsrg-research:|^\/dataforge-observer:/i, 'a research scanner'],
   // Crawlers, seeders and node counters, including the ones that only say
   // "scan", "seeder", "census" or "monitor".
-  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban|^\/p2p-observer:|^\/bip324-probe:|^\/your-fork:|^\/cryptexplorer:|^\/bip110-observer:|^\/topology-probe:|^\/BlockSail:/i, 'a network crawler'],
+  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban|^\/p2p-observer:|^\/p2p-extractor:|^\/bip324-probe:|^\/topology-probe:|^\/p2p-probe:|^\/probe:|^\/btc-peers:|^\/bip110-observer:/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
   [/electrs|electrum|esplora|\/mempool|^NBXplorer-|^\/symphony:/i, 'an address indexer'],
   [/bitcoinj|breadwallet|\/bread:|bither|multibit|wasabi|Bitcoin Wallet|^\/blueberry:|^\/winnow:|^\/BitcoinKit:|^\/WalletKit:|^\/Ladybug:|^\/hodlwallet:|\/spvwallet:/i, 'a wallet'],
@@ -163,34 +164,36 @@ const KIND_RULES = [
   // Other BIP157 light clients: Kyoto, which says "Rust BIP-157". VerifiedX
   // validators follow the chain the same way for a chain of their own: headers,
   // some blocks, no transactions.
-  [/BIP-157|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/multiseed:/i, 'a light client'],
+  // EMPORION and its new name SYMMARTYS fetch headers for OpenTimestamps
+  // verification (bitcoin_headers.py in alexar76/emporion).
+  [/BIP-157|^\/bip157-fetch:|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/EMPORION:|^\/SYMMARTYS:/i, 'a light client'],
 ];
 
 // Rules marked 'whole' read the whole agent: a pool or another chain may be
 // named in the brackets (the pool rule without the word "mempool"). The rest read only the name outside them - a word
 // like "monitor" or "electrs" in an operator's label does not make a Core
 // node a crawler or an indexer. Peer Map's classify does the same.
-function cannotRelayReason(client) {
-  if (!client) return null;
+// The first rule that names this client, as its place in KIND_RULES, or -1.
+function kindRuleIndex(client) {
+  if (!client) return -1;
   const bare = client.replace(/\([^)]*\)/g, '');
   // "pool" inside "mempool" is no pool: "(mempool.guide)" is a node's label.
   const noMempool = client.replace(/mempool/gi, '');
-  for (const [re, what, reads] of KIND_RULES) {
-    const s = reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare;
-    if (re.test(s)) return what;
-  }
-  return null;
+  return KIND_RULES.findIndex(([re, , reads]) => re.test(reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare));
+}
+// The two rules the ranking marks a peer by when Peer Map is not there to ask.
+const MISSPELT_RULE = 0;
+const POOL_RULE = 1;
+
+function cannotRelayReason(client) {
+  const i = kindRuleIndex(client);
+  return i < 0 ? null : KIND_RULES[i][1];
 }
 
 // Whether any rule names this client at all. Peer Map flags a fork only on
 // nodes and unknown software, not on a peer it already named as something
 // else (a pool, a misspelt Core), so the Lab asks the same.
-function namedByKindRule(client) {
-  if (!client) return false;
-  const bare = client.replace(/\([^)]*\)/g, '');
-  const noMempool = client.replace(/mempool/gi, '');
-  return KIND_RULES.some(([re, , reads]) => re.test(reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare));
-}
+const namedByKindRule = (client) => kindRuleIndex(client) >= 0;
 const otherChainShown = (p) => (p.otherChain && !namedByKindRule(p.client) ? p.otherChain : null);
 
 const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -214,7 +217,7 @@ function truncatedCell(text, cls = '') {
 // A table that does not fit its panel first gives up its least important
 // columns, a step at a time (data-drop="1".."4" on the <th>: sessions, then
 // session, ping and last the client; for the pools seen/miss, then
-// median/p90, then host). Only when even that is too wide does each row turn
+// host). Only when even that is too wide does each row turn
 // into a small card of its own (see
 // .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
 // in practice. Cards came too early before: a laptop window a little narrower
@@ -226,11 +229,14 @@ function truncatedCell(text, cls = '') {
 const DROP_LEVELS = 4;
 
 // Column widths of the peer tables, set for each step: the short columns as
-// wide as their content, and the room left shared by address, client and
-// First % in proportion to what each needs - an IPv4 address with its port, a
-// client name like /Satoshi:31.0.0/ (a longer one is cut, the open row has it
-// whole), the longest pill (MANUAL OFFLINE), First % with its bar. They grow
-// and shrink together, so none is cut while another has room to spare.
+// wide as their content, the other four as wide as each needs - an IPv4
+// address with its port, a client name like /Satoshi:31.0.0/ (a longer one is
+// cut, the open row has it whole), the longest pill (MANUAL OFFLINE), First %
+// with its ⚡ and 📡. A window too narrow for that shrinks those four
+// together, so none is cut while another has room to spare. A wider one
+// shares what is left among those four, the client twice over: in one or
+// two columns only, it stood as an empty band (under Type and First %, then
+// under the client), and beside the short numbers it was a gap too.
 const COL_FIXED = { 'col-ping': 72, 'col-session': 78, 'col-sessions': 56, 'col-actions': 240 };
 const COL_NEED = { 'col-address': 161, 'col-client': 140, 'col-status': 139, 'col-pct': 141 };
 function sizeColumns() {
@@ -256,12 +262,14 @@ function sizeColumns() {
       need += COL_NEED['col-client'] - COL_NEED['col-address'];
     }
     const spare = Math.max(0, t.offsetWidth - fixed);
-    for (const th of shown) {
-      const c = col(th);
-      const fix = last && c === 'col-actions' ? 136 : COL_FIXED[c];
-      const want = last && c === 'col-address' ? COL_NEED['col-client'] : COL_NEED[c] || 0;
-      th.style.width = (fix || Math.floor(spare * want / need)) + 'px';
-    }
+    const want = (c) => (last && c === 'col-address' ? COL_NEED['col-client'] : COL_NEED[c] || 0);
+    const fixOf = (c) => (last && c === 'col-actions' ? 136 : COL_FIXED[c]);
+    const base = new Map(shown.map((th) => [th, fixOf(col(th)) || (spare < need ? spare * want(col(th)) / need : want(col(th)))]));
+    const rest = spare > need ? spare - need : 0;
+    const share = (th) => (col(th) === 'col-client' ? 2 : COL_NEED[col(th)] ? 1 : 0);
+    const shares = shown.reduce((sum, th) => sum + share(th), 0);
+    const add = (th) => (shares ? rest * share(th) / shares : 0);
+    for (const th of shown) th.style.width = Math.floor(base.get(th) + add(th)) + 'px';
   }
 }
 
@@ -275,7 +283,8 @@ function fitTables() {
         const th = ths[i];
         if (!th || td.dataset.label != null) return;
         // A card has no room for "(last 500)": the value next to it says x/500 anyway.
-        td.dataset.label = th.textContent.replace(/\s*\(.*\)\s*$/, '').trim();
+        // A header may name a shorter label for the card (data-card: "Last").
+        td.dataset.label = th.dataset.card || th.textContent.replace(/\s*\(.*\)\s*$/, '').trim();
         const col = [...th.classList].find((c) => c.startsWith('col-'));
         if (col) td.dataset.col = col;
         if (th.dataset.drop) td.dataset.drop = th.dataset.drop;
@@ -313,12 +322,16 @@ function fitTables() {
   // row shows it whole.
   const clientCut = () => [...document.querySelectorAll('table.peer-table td[data-col="col-address"]')]
     .some((td) => td.clientWidth && (td.dataset.full || '').length <= 24 && td.scrollWidth > td.clientWidth);
+  // A type pill cut to "MANUAL LI..." counts as too tight as well: the column
+  // can squeeze below its 140px before the table as a whole overflows.
+  const typeCut = () => [...document.querySelectorAll('table.peer-table td[data-col="col-status"]')]
+    .some((td) => td.clientWidth && td.scrollWidth > td.clientWidth + 1);
   if (wider) for (const w of wraps) w.classList.remove('cards');
   let level = wider ? 0 : fitState.level;
   for (; ; level++) {
     for (const w of wraps) w.dataset.drops = String(level);
     sizeColumns();
-    if (level === DROP_LEVELS || !(tight() || clientCut())) break;
+    if (level === DROP_LEVELS || !(tight() || clientCut() || typeCut())) break;
   }
   const cards = level === DROP_LEVELS && tight();
   for (const w of wraps) w.classList.toggle('cards', cards);
@@ -503,6 +516,8 @@ async function refreshStatus() {
     }
   }
   applyStratumEnabled(Boolean(s.stratumRaceEnabled));
+  // Folded, the Storage card says how big the database is.
+  if (s.dbBytes != null) document.getElementById('storage-total').textContent = fmtBytes(s.dbBytes);
   PEER_MAP_INSTALLED = Boolean(s.peerMapInstalled);
   if (s.peerMapLinkPort) PEER_MAP_PORT = s.peerMapLinkPort;
   const readOnlyBanner = document.getElementById('readonly-banner');
@@ -511,9 +526,13 @@ async function refreshStatus() {
   if (rotationToggleBox && s.readOnly) rotationToggleBox.disabled = true;
   const siblingLink = document.getElementById('sibling-link');
   if (siblingLink) {
-    siblingLink.target = PEER_MAP_TARGET;
-    siblingLink.hidden = !PEER_MAP_INSTALLED;
-    if (PEER_MAP_INSTALLED) siblingLink.href = peerMapURL(null);
+    // Without Peer Map the same link leads to where it can be had: the
+    // header is the one quiet place for it, not a line in the tables.
+    siblingLink.hidden = false;
+    siblingLink.target = PEER_MAP_INSTALLED ? PEER_MAP_TARGET : '_blank';
+    siblingLink.href = PEER_MAP_INSTALLED ? peerMapURL(null) : PEER_MAP_PAGE;
+    if (PEER_MAP_INSTALLED) siblingLink.removeAttribute('title');
+    else siblingLink.title = 'See where your peers are and what software they run';
   }
   // The peer count comes from SQLite and the block height from a Bitcoin
   // BCHN RPC call. Tying them together meant a single RPC hiccup (BCHN
@@ -522,7 +541,6 @@ async function refreshStatus() {
   // one cosmetic value was missing.
   const el = document.getElementById('status');
   const parts = [s.network, `${s.live.total} peers connected`];
-  if (s.databaseBytes) parts.push(fmtBytes(s.databaseBytes));
   el.textContent = parts.join(' · ');
   el.prepend(liveDot);
   // How often a block could not be credited to one peer, in the line that
@@ -626,8 +644,13 @@ function setBlockPool(race) {
       : 'No pool we know of. This is the text the miner wrote into the block.';
   } else {
     el.removeAttribute('title');
+    // A new block comes without its pool: the coinbase is read a few seconds
+    // later. Once the line has been there it keeps its height meanwhile -
+    // gone and back, it moved the page twice under a reader at the bottom
+    // (iPhone, 04.11.2026).
+    if (!el.hidden) el.textContent = '\u00a0';
   }
-  el.hidden = !(known || raw);
+  if (known || raw) el.hidden = false;
 }
 
 function triggerBlockWave() {
@@ -768,7 +791,9 @@ function actionsCell(p, { lock = '' } = {}) {
   // that this container has no way to reach that network at all.
   const remove = `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`;
   if (p.trusted) return (lock ? `<span class="action-slot lock-slot">${lock}</span>` : placeholder) + remove;
-  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
+  // A peer that can never deliver a block first ("never first") would only
+  // hold a manual slot the rotation then has to free again.
+  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork || (neverFirstReason(p) && !p.first))
       ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
 
@@ -786,8 +811,34 @@ function actionsCell(p, { lock = '' } = {}) {
   return `${primary}${disconnect}`;
 }
 
+// A word in front of the client for the two kinds that change what to do
+// with a peer: one whose name is not what it runs (Disguised, red as in Peer
+// Map - it may still deliver, the First % beside it says whether), and a
+// mining pool's node, which hears of new blocks early. Every other kind is
+// already said by "never first", and a plain node needs no word at all.
+// Peer Map's answer comes first: it goes by what the peer does. Without it,
+// only what the name gives away.
+function kindTag(p) {
+  if (p.mapKind === 'Disguised') {
+    return { text: 'Disguised', cls: ' disg', title: `Peer Map: ${p.mapWhy || 'not the software its name says'}` };
+  }
+  if (p.mapKind === 'Pool node') {
+    return { text: p.mapPool || 'Pool node', cls: '', title: p.mapPool ? `Peer Map: a node of ${p.mapPool}` : "Peer Map: a mining pool's node" };
+  }
+  const i = kindRuleIndex(p.client);
+  if (i === MISSPELT_RULE) return { text: 'Disguised', cls: ' disg', title: "Bitcoin Core's name, misspelt" };
+  if (i === POOL_RULE) return { text: 'Pool node', cls: '', title: 'Its name says it belongs to a mining pool' };
+  return null;
+}
+function kindTagHtml(p) {
+  const t = kindTag(p);
+  return t ? `<span class="kind-tag${t.cls}" title="${escapeHtml(t.title)}">${escapeHtml(t.text)} · </span>` : '';
+}
+
 function clientCell(p) {
-  return truncatedCell(p.client || '-', 'client');
+  const tag = kindTagHtml(p);
+  const cell = truncatedCell(p.client || '-', 'client');
+  return tag ? cell.replace(/<td[^>]*>/, (td) => td + tag) : cell;
 }
 
 // Session column: current connected duration when live, otherwise how long
@@ -799,7 +850,10 @@ function clientCell(p) {
 function sessionCell(p) {
   if (p.live) return `<td>${fmtDuration(p.currentSessionMs)}</td>`;
   if (p.offlineSinceMs != null) {
-    return `<td class="hint wrap">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
+    // The OFFLINE pill in the same row already says it; the cell keeps to the
+    // duration, so it fits one line like every other session.
+    const d = fmtDuration(p.offlineSinceMs);
+    return `<td class="hint" title="offline for ${escapeHtml(d)}">${escapeHtml(d)}</td>`;
   }
   return `<td>-</td>`;
 }
@@ -919,7 +973,7 @@ async function refreshPeers() {
 // .addr-client) - so the name stays on screen to the end.
 function withClientLine(cell, p) {
   if (!p.client) return cell;
-  return cell.replace(/<\/td>$/, `<small class="addr-client">${escapeHtml(p.client)}</small></td>`);
+  return cell.replace(/<\/td>$/, () => `<small class="addr-client">${kindTagHtml(p)}${escapeHtml(p.client)}</small></td>`);
 }
 
 function addressCell(p) {
@@ -1226,15 +1280,15 @@ function renderPeerTables(peers, options = {}) {
   const freeManualSlots = Math.max(0, MAX_MANUAL_PEERS - manualPeers.length);
   // Free capacity (below the app's manual-connection cap) as actual empty
   // rows, not just the text summary below - "how much room is left" reads
-  // the same way the filled rows above it do, at a glance. Plain dashes,
-  // same as any other empty cell in this app - no banner, no border
-  // treatment, just an empty-looking row.
+  // the same way the filled rows above it do, at a glance. It says "Free
+  // slot", as the phone card does: a lone dash per row looked broken
+  // (04.11.2026). No banner, no border treatment.
   // One cell per column, like any row: a single cell spanning eight kept its
   // span when columns were dropped, and pushed the table out of line with the
   // ones above.
   const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
     <tr class="empty-slot">
-      <td>-</td>${'<td></td>'.repeat(6)}
+      <td>Free slot</td>${'<td></td>'.repeat(6)}
       <td class="row-actions"></td>
     </tr>
   `).join('');
@@ -1343,36 +1397,83 @@ async function refreshRotation() {
   renderRotationLog(lastRotationLog);
 }
 
-function renderRotationLog(log) {
-  const tbody = document.querySelector('#rotation-log-table tbody');
-  if (!tbody) return;
+// A kick of an outbound peer that delivered nothing first: "0/50 recent
+// blocks first". On a typical node nearly every entry is one of these, and
+// thirty lines saying the same said nothing a single line could not.
+const EMPTY_KICK = /^0\/(\d+) recent blocks first$/;
+const emptyKick = (e) => e.action === 'kick' && EMPTY_KICK.test(e.note || '');
 
-  const visible = showAllRotationLog ? log : log.slice(0, ROTATION_LOG_LIMIT);
-
-  const countLabel = document.getElementById('rotation-log-count');
-  if (countLabel) {
-    countLabel.textContent = log.length <= ROTATION_LOG_LIMIT
-      ? ''
-      : `showing ${visible.length} of ${log.length}`;
+// Entries in order, with every run of two or more empty kicks in a row as
+// one group. Promotions, swaps, parks and the rest stay lines of their own:
+// they are the news.
+function rotationLogRows(log) {
+  const rows = [];
+  for (const e of log) {
+    const last = rows[rows.length - 1];
+    if (emptyKick(e) && last && last.kicks) last.kicks.push(e);
+    else rows.push(emptyKick(e) ? { kicks: [e] } : { entry: e });
   }
+  return rows.map((r) => (r.kicks && r.kicks.length === 1 ? { entry: r.kicks[0] } : r));
+}
+// Opened groups, by the time of their oldest kick: a new empty kick joins a
+// group at the top, so its newest time moves, the oldest stays put.
+const openKickGroups = new Set();
 
-  const toggle = document.getElementById('rotation-log-limit-toggle');
-  if (toggle) {
-    toggle.hidden = log.length <= ROTATION_LOG_LIMIT;
-    toggle.textContent = showAllRotationLog
-      ? `Show latest ${ROTATION_LOG_LIMIT} only`
-      : `Show all ${log.length}`;
-  }
-
-  tbody.innerHTML = visible.map((entry) => `
-    <tr>
+function rotationEntryRow(entry, cls = '') {
+  return `
+    <tr${cls ? ` class="${cls}"` : ''}>
       <td class="hint" title="${escapeHtml(new Date(entry.at).toLocaleString())}">${fmtDuration(Date.now() - entry.at)} ago</td>
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
       ${truncatedCell(entry.address)}
       <td>${fmtPct(entry.firstPct)}</td>
       <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(${fmtPct(entry.replacedFirstPct)} lifetime)</span>` : ''}</td>
-    </tr>
-  `).join('') || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
+    </tr>`;
+}
+
+function kickGroupRows(kicks) {
+  const now = Date.now();
+  const newest = kicks[0];
+  const oldest = kicks[kicks.length - 1];
+  const open = openKickGroups.has(oldest.at);
+  const blocks = kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1]));
+  const lo = Math.min(...blocks);
+  const hi = Math.max(...blocks);
+  const span = `${fmtDuration(now - newest.at)} – ${fmtDuration(now - oldest.at)} ago`;
+  const head = `
+    <tr class="kick-group" data-group="${oldest.at}" tabindex="0" aria-expanded="${open}">
+      <td class="hint" title="${escapeHtml(new Date(oldest.at).toLocaleString())} – ${escapeHtml(new Date(newest.at).toLocaleString())}">${span}</td>
+      <td><span class="pill ${rotationActionClass('kick')}">${escapeHtml(rotationActionLabel('kick'))} ×${kicks.length}</span></td>
+      <td>${kicks.length} outbound peers</td>
+      <td>${fmtPct(0)}</td>
+      <td class="hint" title="None of them delivered a block first">0/${lo === hi ? lo : `${lo}–${hi}`} recent blocks first, each <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span></td>
+    </tr>`;
+  return head + (open ? kicks.map((e) => rotationEntryRow(e, 'kick-member')).join('') : '');
+}
+
+function renderRotationLog(log) {
+  const tbody = document.querySelector('#rotation-log-table tbody');
+  if (!tbody) return;
+
+  const rows = rotationLogRows(log);
+  const visible = showAllRotationLog ? rows : rows.slice(0, ROTATION_LOG_LIMIT);
+
+  const countLabel = document.getElementById('rotation-log-count');
+  if (countLabel) {
+    countLabel.textContent = rows.length <= ROTATION_LOG_LIMIT
+      ? (log.length > rows.length ? `${log.length} entries` : '')
+      : `showing ${visible.length} of ${rows.length}`;
+  }
+
+  const toggle = document.getElementById('rotation-log-limit-toggle');
+  if (toggle) {
+    toggle.hidden = rows.length <= ROTATION_LOG_LIMIT;
+    toggle.textContent = showAllRotationLog
+      ? `Show latest ${ROTATION_LOG_LIMIT} only`
+      : `Show all ${rows.length}`;
+  }
+
+  tbody.innerHTML = visible.map((r) => (r.kicks ? kickGroupRows(r.kicks) : rotationEntryRow(r.entry))).join('')
+    || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
 }
 
 /**
@@ -1393,9 +1494,9 @@ function applyStratumEnabled(enabled) {
   if (document.activeElement !== toggle) toggle.checked = enabled;
   foldSums();
   const body = document.getElementById('stratum-body');
-  const offHint = document.getElementById('stratum-off-hint');
   if (body) body.hidden = !enabled;
-  if (offHint) offHint.hidden = enabled;
+  const noMiner = document.getElementById('pool-no-miner');
+  if (noMiner) noMiner.hidden = enabled;
 }
 
 async function refreshPools() {
@@ -1420,9 +1521,8 @@ function renderPools(pools) {
       <td class="client">${escapeHtml(`${p.host}:${p.port}`)}</td>
       <td><b>${p.wins}</b></td>
       <td>${fmtPct(p.winPct)}</td>
+      <td>${fmtMs(p.lastMs)}</td>
       <td>${fmtMs(p.avgMs)}</td>
-      <td>${fmtMs(p.medianMs)}</td>
-      <td>${fmtMs(p.p90Ms)}</td>
       <td>${p.seen}</td>
       <td>${p.misses}</td>
       <td class="pool-enabled">
@@ -1433,6 +1533,20 @@ function renderPools(pools) {
   `).join('');
   markOpenRow();
   foldSums();
+}
+
+// The legend and the explanations fold shut again with a tap anywhere on
+// them, not only on their title: on a phone the title has scrolled away by
+// then, and it comes back into view. Storage is left out - its buttons
+// delete data, and a tap beside one must not do anything at all.
+for (const box of document.querySelectorAll('details.key, details.how')) {
+  box.addEventListener('click', (e) => {
+    if (!box.open || e.target.closest('summary, a, button, input')) return;
+    if (String(window.getSelection()).length > 0) return;
+    box.open = false;
+    const top = box.getBoundingClientRect().top;
+    if (top < 0) window.scrollBy(0, top - 8);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1569,6 +1683,22 @@ function reportRefreshHealth(errors) {
   banner.hidden = false;
   banner.textContent = `The dashboard has not been able to refresh for ${consecutiveFailedRefreshes} rounds (${errors[0].message}). The numbers below are stale.`;
 }
+
+// A group of kicks opens and closes on a click or Enter, in place.
+function toggleKickGroup(row) {
+  const at = Number(row.dataset.group);
+  if (openKickGroups.has(at)) openKickGroups.delete(at); else openKickGroups.add(at);
+  if (lastRotationLog) renderRotationLog(lastRotationLog);
+  document.querySelector(`#rotation-log-table tr.kick-group[data-group="${at}"]`)?.focus({ preventScroll: true });
+}
+document.getElementById('rotation-log-table').addEventListener('click', (e) => {
+  const row = e.target.closest('tr.kick-group');
+  if (row) toggleKickGroup(row);
+});
+document.getElementById('rotation-log-table').addEventListener('keydown', (e) => {
+  const row = e.target.closest('tr.kick-group');
+  if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleKickGroup(row); }
+});
 
 document.getElementById('rotation-log-limit-toggle').addEventListener('click', () => {
   showAllRotationLog = !showAllRotationLog;
@@ -1839,6 +1969,11 @@ document.body.addEventListener('click', async (e) => {
     document.getElementById('pool-label').value = t.label;
     document.getElementById('pool-host').value = t.host;
     document.getElementById('pool-port').value = t.port;
+    // DATUM hands out no work until it has a payout address (Umbrel's own
+    // setup notes for the app), the other four run as installed (theirs):
+    // said here, or DATUM's misses look like a fault.
+    document.getElementById('pool-add-result').textContent = template === 'datum'
+      ? 'The other pool apps work straight away. DATUM sends work only once a Bitcoin address is set in its Config tab.' : '';
     document.getElementById('pool-add-form').querySelector('button[type="submit"]').focus();
     return;
   }

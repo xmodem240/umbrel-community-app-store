@@ -3,7 +3,7 @@ id: kyle-bch-lab
 category: bitcoin
 name: Bitcoin Cash Lab
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bch-lab-icon.svg
-version: "0.4.0"
+version: "0.5.0"
 tagline: See which peers bring your Bitcoin Cash node new blocks first
 description: >-
   Your peers decide how soon your Bitcoin Cash node hears about a new block. Bitcoin Cash Lab notes, for every block, which peer delivered it first and ranks your peers by it.
@@ -20,7 +20,7 @@ description: >-
 
   For AxeBCH, host, ports and user are built in; you enter its per-install RPC password (the app tells you where to find it). Early release: not yet run against a live BCH node. Based on the MIT-licensed Bitcoin Lab by benunskilled.
 releaseNotes: >-
-  Rebuilt on the latest Node 22 image with security updates. Dashboard from Bitcoin Lab 2.1.0: cards fold and stay folded, the page keeps your place while the ranking re-sorts, a jump bar, tap a peer row to show its buttons, and the Total Time column is gone.
+  Rebuilt on the latest Node 22 image (security fixes). From Bitcoin Lab 2.2.0: the home widget now shows traffic and peers in / out, disguised peers and pool nodes are marked, Stratum Race shows the latest block and average, shorter rotation notes, and faster page loads.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies: []
@@ -34,30 +34,9 @@ defaultPassword: ""
 submitter: Kyle
 submission: https://github.com/xmodem240/umbrel-community-app-store
 widgets:
-  - id: "stats"
-    type: "four-stats"
-    refresh: "60s"
-    endpoint: "dashboard:8788/api/widget/stats"
-    link: ""
-    example:
-      type: "four-stats"
-      link: ""
-      items:
-        - title: "Live Peers"
-          text: "24"
-          subtext: "connected"
-        - title: "Best Peer"
-          text: "33%"
-          subtext: "203.0.113.12:8333"
-        - title: "Fastest Pool"
-          text: "80ms"
-          subtext: "Kryptex BCH"
-        - title: "Manual"
-          text: "8/8"
-          subtext: "manual peers online"
   - id: "traffic"
     type: "three-stats"
-    refresh: "3600s"
+    refresh: "60s"
     endpoint: "dashboard:8788/api/widget/traffic"
     link: ""
     example:
@@ -68,5 +47,5 @@ widgets:
           subtext: "sent today"
         - text: "1.9 GB"
           subtext: "received today"
-        - text: "312 GB"
-          subtext: "last 30 days"
+        - text: "2 / 6"
+          subtext: "peers in / out"

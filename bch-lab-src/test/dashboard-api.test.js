@@ -76,6 +76,28 @@ test('POST /api/pools rejects a malformed host and accepts a good one', async ()
   assert.deepEqual(row, { label: 'Good Pool', host: 'pool.example', port: 3333 });
 });
 
+test('POST /api/pools answers 409 only for a duplicate, 500 for any other database error', async () => {
+  const pool = { label: 'Twice', host: 'twice.example', port: 3333 };
+  const first = await api('/api/pools', { method: 'POST', body: JSON.stringify(pool) });
+  assert.equal(first.status, 200);
+  const dup = await api('/api/pools', { method: 'POST', body: JSON.stringify(pool) });
+  assert.equal(dup.status, 409);
+
+  // A read-only database stands in for a full disk: the insert fails, but not
+  // because the pool exists.
+  db.instance.pragma('query_only = ON');
+  try {
+    const broken = await api('/api/pools', {
+      method: 'POST',
+      body: JSON.stringify({ label: 'New', host: 'new.example', port: 3333 }),
+    });
+    assert.equal(broken.status, 500);
+    assert.equal(broken.body.error, 'internal error');
+  } finally {
+    db.instance.pragma('query_only = OFF');
+  }
+});
+
 test('GET /api/health reports this process and every background service', async () => {
   const { status, body } = await api('/api/health');
   assert.equal(status, 200);
@@ -157,6 +179,8 @@ test('GET /api/status reports the peer counts and the manual cap', async () => {
   // The frontend sizes the Manual Peers panel from this; without it the empty
   // slot rows silently fall back to a hardcoded 8.
   assert.equal(typeof body.maxManualPeers, 'number');
+  // The folded Storage card shows this.
+  assert.ok(body.dbBytes > 0, 'the database has a size on disk');
 });
 
 test('GET /api/peers/ranking answers with an array the tables can render', async () => {
@@ -262,15 +286,14 @@ test('PATCH /api/pools/:id will not disable a pool because the body was empty', 
   assert.equal((await api(`/api/pools/${id}`, { method: 'DELETE' })).status, 200);
 });
 
-test('GET /api/widget/stats gives Umbrel four tiles it can render', async () => {
-  const { status, body } = await api('/api/widget/stats');
+test('GET /api/widget/traffic gives Umbrel three tiles, the last one the peers in and out', async () => {
+  const { status, body } = await api('/api/widget/traffic');
   assert.equal(status, 200);
-  assert.equal(body.type, 'four-stats');
-  assert.equal(body.items.length, 4, 'the four-stats widget type requires exactly four');
-  for (const item of body.items) {
-    assert.equal(typeof item.title, 'string');
-    assert.equal(typeof item.text, 'string', 'a missing value renders as an empty tile on the home screen');
-  }
+  assert.equal(body.type, 'three-stats');
+  assert.equal(body.items.length, 3, 'the three-stats widget type requires exactly three');
+  for (const item of body.items) assert.equal(typeof item.text, 'string', 'a missing value renders as an empty tile on the home screen');
+  assert.match(body.items[2].text, /^\d+ \/ \d+$/);
+  assert.equal(body.items[2].subtext, 'peers in / out');
 });
 
 test('serveStatic refuses to walk out of the public directory', async () => {

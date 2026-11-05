@@ -22,7 +22,9 @@ const vm = require('vm');
  * out, or nowhere at all on a CI runner that only cloned this app. Set
  * PEER_MAP_DIR to say where it is; without it, the sibling checkout is the
  * one place worth guessing. When it is not there these tests skip rather than
- * fail - a missing neighbour is not a disagreement.
+ * fail - a missing neighbour is not a disagreement. Except when PEER_MAP_DIR
+ * is set, as CI does: then a missing file is a broken checkout, and skipping
+ * would leave the run green without ever comparing.
  */
 
 const KINDS_GO = process.env.PEER_MAP_DIR
@@ -112,12 +114,21 @@ const AGENTS = [
   '/btcwire:0.5.0/btcd:0.25.0/', '/libbitcoin:4.0.0/', '/bcoin:v1.0.0-beta.14/', '/Gocoin:1.10.0pre/',
   // A Utreexo node: named in Peer Map, relaying in both.
   '/Floresta:0.9.1/', '/Floresta:0.9.1/mandacaru:0.15.2/',
+  // Clients identified in public source on 29 October.
+  '/BitcoinRocks:31.1.1/', '/bip110-observer:0.1/', '/EMPORION:0.3/', '/SYMMARTYS:0.3/',
+  // Names with no public source stay with what relays; names that say probe,
+  // peers or bip157 get the kind they say (3 November).
+  '/your-fork:0.1/', '/cryptexplorer:0.1.0/', '/BlockSail:0.1/', '/trinetra:0.1/', '/multiseed:0.1/',
+  '/topology-probe:0.1/', '/p2p-probe:0.1/', '/probe:1.0/', '/btc-peers:0.1/', '/p2p-extractor:0.1/', '/bip157-fetch:0.1/', '/dexcash-nodes:0.1.0/',
   // Software that does relay, and software nobody here has heard of.
   '/Satoshi:29.0.0/', '/Satoshi:28.1.0/Knots:20250903/', '/btcwire:0.5.0/', '/Sat0shi:31.0.0/', '',
   // The three the apps used to judge differently.
   '/Satoshi:27.0.0(mempool.guide)/electrs:0.10.0/', '/btc-mempool:1/', '/Sat0shi:31.0.0/crawler:1/', '/CKCoinD:1.0/',
 ];
 
+if (process.env.PEER_MAP_DIR && !fs.existsSync(KINDS_GO)) {
+  throw new Error(`PEER_MAP_DIR is set, but there is no ${KINDS_GO}`);
+}
 const SKIP_WITHOUT_SIBLING = fs.existsSync(KINDS_GO)
   ? false
   : `no Peer Map checkout at ${KINDS_GO} - set PEER_MAP_DIR to compare the two apps`;
@@ -156,6 +167,9 @@ test('the reason shown names the family the Go side named', () => {
     ['/uni-goettingen.de/', 'research scanner'],
     ['/mempool.space:1.0/', 'indexer'],
     ['/electrumx:1.16/', 'indexer'],
+    ['/EMPORION:0.3/', 'light client'],
+    ['/SYMMARTYS:0.3/', 'light client'],
+    ['/bip110-observer:0.1/', 'crawler'],
   ];
   for (const [agent, fragment] of expectations) {
     const reason = cannotRelayReason(agent) || '';

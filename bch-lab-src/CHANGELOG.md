@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0
+
+From upstream Bitcoin Lab 2.1.1 to 2.2.0:
+
+- **Security: Node 22 base image moved to its current digest** (security fixes).
+- Home-screen widget: the four-tile widget is gone (on a fresh install two tiles were empty and one showed a
+  peer's address); the traffic widget now shows sent today, received today and peers in / out, refreshed every
+  minute.
+- Stratum Race shows the latest block and the average instead of median and P90, and says a pool app works
+  without a miner.
+- The ranking marks disguised peers and pool nodes, and offers no manual slot to a peer that can never deliver.
+- Phone legend explaining the marks; a tap on an open explanation folds it shut; one widget shows traffic and
+  your peers in and out; Storage shows the database size while folded.
+- Shorter rotation notes; the rotation log folds runs of empty kicks; tables drop a column before a type pill
+  is cut.
+- Dashboard answers are gzip-packed, so pages load faster.
+
 ## 0.4.0
 
 From upstream Bitcoin Lab 2.1.0:

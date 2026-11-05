@@ -28,8 +28,11 @@ test.afterEach(() => {
   mock.restoreAll();
   // Manual slots are now a finite resource that adds compete for, so a test
   // leaving its peer behind would silently change what the next one is
-  // testing once the cap is reached.
-  db.instance.exec('DELETE FROM trusted_peer; DELETE FROM parked_peer;');
+  // testing once the cap is reached. The rotation log too: the peers here sit
+  // on random local ports, a port comes round again now and then, and a test
+  // that looks up its own log row by address then found an earlier test's
+  // (Node 22 on main, 05.11.2026).
+  db.instance.exec('DELETE FROM trusted_peer; DELETE FROM parked_peer; DELETE FROM rotation_log;');
 });
 
 // A real local listener so manualAddPeer's TCP probe succeeds without
@@ -311,7 +314,7 @@ test('adding a peer at capacity frees exactly one slot, and names what it droppe
     // And it is in the rotation log, so it does not vanish without a trace.
     const logged = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'manual' AND address = ?").get(address);
     assert.equal(logged.replaced_address, '198.51.100.1:8333');
-    assert.equal(logged.note, 'added by hand, replaced 198.51.100.1:8333');
+    assert.equal(logged.note, 'added by hand, replaced the weakest');
   } finally {
     server.close();
   }
