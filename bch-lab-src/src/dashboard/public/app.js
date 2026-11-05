@@ -2141,6 +2141,9 @@ async function refreshHealth() {
     banner.hidden = true;
     throw err;
   }
+  // The running version beside the name, so it is plain that an update took.
+  const ver = document.getElementById('app-version');
+  if (ver && report.version) ver.textContent = `v${report.version}`;
   const down = Object.entries(report.services || {})
     .filter(([, v]) => !v.ok)
     .map(([name]) => name);

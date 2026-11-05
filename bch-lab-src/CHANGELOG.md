@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- The dashboard shows the running version (for example v0.5.1) beside the app name, so it is plain that an update took.
+
 ## 0.5.0
 
 From upstream Bitcoin Lab 2.1.1 to 2.2.0:

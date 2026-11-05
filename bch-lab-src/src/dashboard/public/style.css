@@ -1047,3 +1047,7 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
   .cards.cards #pool-table tr { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1.4fr); }
   .cards.cards #pool-table td[data-label="Avg"] { display: none; }
 }
+
+/* Version beside the app name */
+.app-version { margin-left: 8px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--muted); vertical-align: 2px; }
+.app-version:empty { display: none; }
