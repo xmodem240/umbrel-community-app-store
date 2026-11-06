@@ -140,7 +140,9 @@ class StratumPoolConnection extends EventEmitter {
       // even after the idle-timeout fix kept connections open. We never
       // submit shares, so the address doesn't need to be ours - see
       // config.js stratumAuthorizeAddress for why this specific one.
-      const authorize = JSON.stringify({ id: 2, method: 'mining.authorize', params: [`${this.loginForms[this.loginFormIndex]}.bchlab`, 'x'] });
+      // The worker name is a common one, not the app's: ".bchlab" told every
+      // pool which of its connections ran Bitcoin Cash Lab.
+      const authorize = JSON.stringify({ id: 2, method: 'mining.authorize', params: [`${this.loginForms[this.loginFormIndex]}.worker1`, 'x'] });
       socket.write(`${authorize}\n`);
       this.emit('connect');
       this._startHeartbeat();

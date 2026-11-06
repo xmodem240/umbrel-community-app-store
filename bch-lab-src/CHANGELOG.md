@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.2
+
+From upstream Bitcoin Lab 2.3.0:
+
+- **Security: a request line that is no URL (for example `//`) no longer stops the dashboard.** It threw outside
+  the error handling and the process guard ended the app, a restart loop for anyone who kept sending it. It is
+  now answered with 400.
+- Stratum Race takes at most 20 pools; each is a socket held open and a row per block.
+- The pool login no longer names the app: the worker name is a plain `.worker1` (it was `.bchlab`).
+- A peer you disconnect by hand gets a line in the rotation log.
+- Only the newest block's peers are tinted, and the block wave runs evenly across the page.
+
+Not taken over: upstream's new tab icon (carries a Bitcoin sign).
+
 ## 0.5.1
 
 - The dashboard shows the running version (for example v0.5.1) beside the app name, so it is plain that an update took.
