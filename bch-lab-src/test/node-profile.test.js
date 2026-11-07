@@ -228,3 +228,20 @@ test('watch() is off when NODE_PROFILE_WATCH=0 and never keeps the process alive
   assert.ok(t.hasRef() === false, 'timer is unref\'d');
   clearInterval(t);
 });
+
+test('the official Umbrel node profile takes its login from the environment', () => {
+  const keys = ['OFFICIAL_BCHN_HOST', 'OFFICIAL_BCHN_RPC_USER', 'OFFICIAL_BCHN_RPC_PASS', 'OFFICIAL_BCHN_RPC_PORT', 'OFFICIAL_BCHN_ZMQ_PORT'];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try {
+    for (const k of keys) delete process.env[k];
+    assert.throws(() => nodeProfile.normalise({ profile: 'umbrel' }), /has not given this app the login/);
+    Object.assign(process.env, { OFFICIAL_BCHN_HOST: '10.21.0.9', OFFICIAL_BCHN_RPC_USER: 'u', OFFICIAL_BCHN_RPC_PASS: 'p', OFFICIAL_BCHN_RPC_PORT: '8332', OFFICIAL_BCHN_ZMQ_PORT: '28332' });
+    const s = nodeProfile.normalise({ profile: 'umbrel' });
+    assert.deepEqual([s.host, s.rpcUser, s.rpcPass, s.zmqPort], ['10.21.0.9', 'u', 'p', 28332]);
+    const listed = nodeProfile.listProfiles().find((x) => x.id === 'umbrel');
+    assert.equal(listed.defaults.rpcUser, '', 'a fixed login is never sent to the browser');
+    assert.equal(JSON.stringify(listed).includes('"p"'), false);
+  } finally {
+    for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
+});

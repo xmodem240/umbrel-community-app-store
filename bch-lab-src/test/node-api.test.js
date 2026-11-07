@@ -73,7 +73,7 @@ test('GET /api/node shows the active node and a live connection check, but never
   assert.equal(body.connection.ok, true);
   assert.match(body.connection.rpc.subversion, /Bitcoin Cash Node/);
   assert.equal(body.connection.rpc.blocks, 42);
-  assert.deepEqual(body.profiles.map((p) => p.id), ['lonestrike', 'axebch', 'custom']);
+  assert.deepEqual(body.profiles.map((p) => p.id), ['lonestrike', 'umbrel', 'axebch', 'custom']);
   assert.equal(raw.includes(SECRET), false, 'the RPC password must not appear anywhere in the reply');
   assert.equal(raw.includes('bchn_local_rpc_pw'), false, 'nor the built-in LoneStrike login');
 });

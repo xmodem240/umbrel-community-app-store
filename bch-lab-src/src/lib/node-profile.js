@@ -65,6 +65,31 @@ const PROFILES = {
     // Container names that mean "this app is installed" (see detect()).
     candidates: ['sslabs-bitcoin-cash-node_bitcoind_1'],
   },
+  umbrel: {
+    id: 'umbrel',
+    label: 'Bitcoin Cash Node (official Umbrel app)',
+    software: 'BCHN',
+    verified: true,
+    fixedLogin: true,
+    note:
+      'The official Umbrel app "Bitcoin Cash Node" (bitcoin-cash-node), the same node AxePool uses. Umbrel hands its address, RPC login and ZMQ port ' +
+      'to this app, so there is nothing to type. Install that app first; if it was installed after this one, restart Bitcoin Cash Lab once so Umbrel passes the details on.',
+    // Read from the environment each time, because Umbrel fills these in per install.
+    get defaults() {
+      const e = process.env;
+      return {
+        host: pick(e.OFFICIAL_BCHN_HOST, 'bitcoin-cash-node_bitcoind_1'),
+        rpcPort: Number(pick(e.OFFICIAL_BCHN_RPC_PORT, 8332)),
+        rpcUser: pick(e.OFFICIAL_BCHN_RPC_USER, ''),
+        rpcPass: pick(e.OFFICIAL_BCHN_RPC_PASS, ''),
+        zmqHost: '',
+        zmqPort: Number(pick(e.OFFICIAL_BCHN_ZMQ_PORT, 28332)),
+      };
+    },
+    get candidates() {
+      return [process.env.OFFICIAL_BCHN_HOST, 'bitcoin-cash-node_bitcoind_1'].filter(Boolean);
+    },
+  },
   axebch: {
     id: 'axebch',
     label: 'AxeBCH (WillItMod)',
@@ -229,6 +254,7 @@ function normalise(input, current) {
   if (profile.fixedLogin) {
     rpcUser = d.rpcUser;
     rpcPass = d.rpcPass;
+    if (!rpcUser || !rpcPass) throw new Error('Umbrel has not given this app the login for that node. Install the app, then restart Bitcoin Cash Lab once.');
   } else {
     rpcUser = text(pick(input.rpcUser, d.rpcUser, ''), 'RPC user', { allowColon: false });
     let pass = input.rpcPass == null ? '' : String(input.rpcPass);
