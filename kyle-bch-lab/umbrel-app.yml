@@ -3,7 +3,7 @@ id: kyle-bch-lab
 category: bitcoin
 name: Bitcoin Cash Lab
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bch-lab-icon.svg
-version: "0.5.3"
+version: "0.5.4"
 tagline: See which peers bring your Bitcoin Cash node new blocks first
 description: >-
   Your peers decide how soon your Bitcoin Cash node hears about a new block. Bitcoin Cash Lab notes, for every block, which peer delivered it first and ranks your peers by it.
@@ -20,11 +20,10 @@ description: >-
 
   For AxeBCH, host, ports and user are built in; you enter its per-install RPC password (the app tells you where to find it). Early release: not yet run against a live BCH node. Based on the MIT-licensed Bitcoin Lab by benunskilled.
 releaseNotes: >-
-  The Node card can now switch to the official Umbrel Bitcoin Cash Node app (the one AxePool uses) with no typing.
+  Fixes the app not starting after 0.5.3. It now depends on the official Bitcoin Cash Node app, the same way AxePool does, so Umbrel can hand over that node's login.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
-dependencies: []
-optionalDependencies:
+dependencies:
   - bitcoin-cash-node
 repo: https://github.com/xmodem240/umbrel-community-app-store
 support: https://github.com/xmodem240/umbrel-community-app-store/issues
