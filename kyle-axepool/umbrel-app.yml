@@ -3,7 +3,7 @@ id: kyle-axepool
 category: bitcoin
 name: AxePool
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/axepool-icon.svg
-version: "0.2.1"
+version: "0.3.0"
 tagline: Solo mine Bitcoin Cash with your Bitaxe and NerdQaxe miners
 description: >-
   AxePool is a self-hosted Bitcoin Cash (BCH) solo-mining Stratum server for your own Bitcoin Cash
@@ -22,10 +22,10 @@ description: >-
 
   Early release. Based on the MIT-licensed SoloBCH Forge by DanCreatesStuff.
 releaseNotes: >-
-  The dashboard now shows the Stratum port miners actually use (3344) instead of the app's
-  internal port (3334). The Stratum and dashboard port fields in Settings are locked, because
-  Umbrel fixes those ports and changing them there would break the app. Includes 0.2.0: legacy
-  1... payout addresses, miner monitoring, and fast starting difficulty.
+  Live graphs: pool hashrate (pool-measured vs miner-reported), miners connected, power and
+  hottest chip, over 1 hour to 1 year, updating every 10 seconds. A card for each miner shows its
+  hashrate, temperatures, power, efficiency, difficulty and shares; tap it for that miner's own
+  graphs. Replaces the old hashrate sparkline and history panels.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies:

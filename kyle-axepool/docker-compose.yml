@@ -20,7 +20,7 @@ services:
       APP_PORT: 3335
 
   server:
-    image: ghcr.io/xmodem240/axepool:0.2.1
+    image: ghcr.io/xmodem240/axepool:0.3.0
     # Umbrel owns the app's data dir as UID 1000; the shipped data/ folder is copied in
     # 1000-owned on install.
     user: "1000:1000"
