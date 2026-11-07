@@ -20,7 +20,7 @@ services:
       APP_PORT: 3335
 
   server:
-    image: ghcr.io/xmodem240/axepool:0.2.0
+    image: ghcr.io/xmodem240/axepool:0.2.1
     # Umbrel owns the app's data dir as UID 1000; the shipped data/ folder is copied in
     # 1000-owned on install.
     user: "1000:1000"
@@ -53,3 +53,9 @@ services:
       BCHN_RPC_USER: ${APP_BITCOIN_CASH_NODE_RPC_USER}
       BCHN_RPC_PASSWORD: ${APP_BITCOIN_CASH_NODE_RPC_PASS}
       SOLOBCH_ZMQ_ENDPOINT: tcp://${APP_BITCOIN_CASH_NODE_NODE_IP}:${APP_BITCOIN_CASH_NODE_ZMQ_HASHBLOCK_PORT}
+      # Ports are fixed by the mappings above (ports: and app_proxy APP_PORT), so they are
+      # pinned here and show as locked in Settings: changing them there would break the app.
+      SOLOBCH_STRATUM_PORT: "3334"
+      SOLOBCH_STATUS_PORT: "3335"
+      # The port miners use (the host side of 3344:3334), shown on the dashboard.
+      SOLOBCH_PUBLIC_STRATUM_PORT: "3344"

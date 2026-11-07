@@ -31,6 +31,7 @@ jobs:
       - run: python server/test_metrics_store.py
       - run: python server/test_miner_poller.py
       - run: python server/test_vardiff_seed.py
+      - run: python server/test_ports.py
   build:
     needs: test
     # Pull requests only run the tests; images are published from main.

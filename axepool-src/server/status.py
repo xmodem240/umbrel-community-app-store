@@ -90,7 +90,7 @@ def build_snapshot(server, jobs) -> dict:
         "server": {
             "name": "AxePool",
             "status": "running",
-            "stratum_port": server.stratum_port,
+            "stratum_port": getattr(server, "public_stratum_port", server.stratum_port),
             "uptime_s": round(now - server.start_time_wall, 1),
             "connections": len(server.clients),
         },

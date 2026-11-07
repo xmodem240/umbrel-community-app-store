@@ -132,6 +132,9 @@ class StratumServer:
         self.jobs = jobs
         self.clients = set()
         self.stratum_port = BIND_PORT
+        # The port miners connect to. Differs from stratum_port in a container,
+        # where the published host port is mapped (Umbrel: 3344 -> 3334).
+        self.public_stratum_port = BIND_PORT
         self.start_time_wall = time.time()
         # Identity (address.worker) -> {worker, payout, last_seen, alerted}. Tracks
         # miners that have connected so the offline monitor can alert when one that
@@ -224,6 +227,19 @@ class StratumServer:
                     c.writer.close()
                 except Exception:
                     pass
+
+
+def public_stratum_port(listen_port, env=os.environ):
+    """The Stratum port miners should use: SOLOBCH_PUBLIC_STRATUM_PORT when it is
+    a valid port (set by docker-compose to the published host port), otherwise
+    the port the server listens on."""
+    raw = env.get("SOLOBCH_PUBLIC_STRATUM_PORT", "").strip()
+    if not raw:
+        return listen_port
+    if raw.isdigit() and 1 <= int(raw) <= 65535:
+        return int(raw)
+    log.warning("ignoring SOLOBCH_PUBLIC_STRATUM_PORT=%r (not a port 1-65535)", raw[:20])
+    return listen_port
 
 
 def seed_difficulty(ghs, target_spm):
@@ -1037,11 +1053,12 @@ async def main():
 
     server = StratumServer(jobs)
     server.stratum_port = cfg["stratum_port"]
+    server.public_stratum_port = public_stratum_port(cfg["stratum_port"])
     srv = await asyncio.start_server(server.handle, BIND_HOST, cfg["stratum_port"])
     addr = ", ".join(str(s.getsockname()) for s in srv.sockets)
     log.info("Stratum listening on %s", addr)
-    log.info("Point a NerdQaxe++ at stratum+tcp://<umbrel-ip>:%d  user=<BCH address>.worker",
-             cfg["stratum_port"])
+    log.info("Point miners at stratum+tcp://<umbrel-ip>:%d  user=<BCH address>.worker",
+             server.public_stratum_port)
 
     diag = Diagnostics(server, jobs, cfg["stratum_port"])
     status = StatusServer(server, jobs, STATUS_HOST, cfg["status_port"], history,

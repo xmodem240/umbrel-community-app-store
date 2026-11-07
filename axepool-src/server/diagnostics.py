@@ -457,7 +457,8 @@ class Diagnostics:
         if not found:
             return ("fail", f"no miner authorized within {MINER_WAIT:.0f}s",
                     "No miner has connected. On the miner set: Stratum URL "
-                    f"stratum+tcp://<your Umbrel's LAN IP>:{self.stratum_port}, username "
+                    "stratum+tcp://<your Umbrel's LAN IP>:"
+                    f"{getattr(self.server, 'public_stratum_port', self.stratum_port)}, username "
                     "<your BCH address>.<worker name>, any password. The miner must be on "
                     "the same network as Umbrel. If the miner itself says 'connected' "
                     "but nothing shows here, it is pointed at a different host or port; "
