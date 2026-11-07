@@ -50,6 +50,9 @@ VARDIFF_INTERVAL = 45.0             # min seconds between retargets per worker
 VARDIFF_WINDOW = 120.0              # look back this many seconds at share rate
 VARDIFF_MIN_WINDOW = 30.0           # need at least this much data before adjusting
 VARDIFF_TICK = 15.0                 # how often the vardiff loop scans workers
+SEED_WINDOW = 300.0                # s after connecting during which a miner-reported
+                                   # hashrate may seed the starting difficulty
+SEED_MIN_CHANGE = 0.25             # ignore a seed within 25% of the current difficulty
 OFFLINE_TICK = 15.0                # how often the offline-miner monitor scans
 OFFLINE_GRACE = 120.0              # a miner must be gone this long before we alert
                                     # (rides out brief internet blips / reconnects)
@@ -223,6 +226,15 @@ class StratumServer:
                     pass
 
 
+def seed_difficulty(ghs, target_spm):
+    """Share difficulty at which `ghs` GH/s yields `target_spm` shares/minute.
+
+    One share at difficulty D takes D * 2**32 hashes on average, so
+    shares/s = H / (D * 2**32)  ->  D = H * 60 / (target_spm * 2**32).
+    """
+    return ghs * 1e9 * 60.0 / (target_spm * (2 ** 32))
+
+
 def collect_sample(clients, since_mono, last_rejected, now_mono=None, devices=None):
     """One metrics sample: (pool, {identity: miner}) dicts for MetricsStore.
 
@@ -340,6 +352,7 @@ class ClientConn:
         self._diff_changed = 0.0
         self._last_vardiff = 0.0            # monotonic ts of last vardiff retarget
         self.suggested_diff = None           # miner-requested starting difficulty
+        self.seeded = False                  # starting difficulty seeded from the miner's API
 
     def _tag(self):
         who = self.worker or f"{self.peer[0]}:{self.peer[1]}"
@@ -428,6 +441,40 @@ class ClientConn:
         if mid is not None:
             await self.send_result(mid, True)
 
+    async def maybe_seed(self, device):
+        """Seed the starting difficulty from the miner's own reported hashrate.
+
+        Without this a new connection starts at a fixed or suggested difficulty
+        and vardiff needs several minutes of shares to find the right one. The
+        miner's API already knows its hashrate, so the target-rate difficulty
+        can be set within seconds. One shot per connection, only early in the
+        connection, only with vardiff on, and clamped to the vardiff bounds;
+        the share-rate loop (maybe_retarget) stays in charge afterwards.
+        """
+        v = self.jobs.vardiff
+        if (self.seeded or not v.get("enabled") or not self.authorized or self.internal
+                or self.difficulty is None or not device):
+            return None
+        if time.monotonic() - self.connected_mono > SEED_WINDOW:
+            self.seeded = True               # too late: shares already tell the story
+            return None
+        if device.get("state") != "mining":
+            return None                      # try again once it is hashing
+        ghs = next((device.get(k) for k in ("hashrate_10m_ghs", "hashrate_1m_ghs",
+                                            "hashrate_ghs") if device.get(k)), None)
+        if not ghs or ghs <= 0:
+            return None
+        self.seeded = True
+        seed = self._clamp_diff(seed_difficulty(ghs, max(1, v.get("target_spm", 20))))
+        if abs(seed - self.difficulty) / self.difficulty < SEED_MIN_CHANGE:
+            return None
+        old = self.difficulty
+        await self.set_difficulty(seed)
+        self._last_vardiff = time.monotonic()
+        log.info("%s difficulty seeded %.0f -> %d from miner-reported %.0f GH/s",
+                 self._tag(), old, self.difficulty, ghs)
+        return self.difficulty
+
     async def maybe_retarget(self):
         """Vardiff: nudge this worker's difficulty toward the target share rate."""
         v = self.jobs.vardiff
@@ -436,7 +483,10 @@ class ClientConn:
         now = time.monotonic()
         if now - self._last_vardiff < VARDIFF_INTERVAL:
             return
-        window = min(VARDIFF_WINDOW, now - self.connected_mono)
+        # Count only shares mined at the current difficulty: a window reaching
+        # back past the last change mixes share rates from two difficulties and
+        # overshoots (e.g. the fast shares just before a seed).
+        window = min(VARDIFF_WINDOW, now - max(self.connected_mono, self._diff_changed))
         if window < VARDIFF_MIN_WINDOW:
             return                            # too little data yet to judge
         observed_spm = self.shares_in(window) / (window / 60.0)
@@ -1049,8 +1099,13 @@ async def main():
         while True:
             await asyncio.sleep(2.0)
             try:
-                poller.note_connections(list(server.clients))
+                clients = list(server.clients)
+                poller.note_connections(clients)
                 await poller.poll_due()
+                devices = poller.link(c.raw_user for c in clients if c.raw_user)
+                for c in clients:
+                    if not c.seeded and c.raw_user in devices:
+                        await c.maybe_seed(devices[c.raw_user])
             except Exception as e:
                 log.debug("miner poller error: %s", e)
 

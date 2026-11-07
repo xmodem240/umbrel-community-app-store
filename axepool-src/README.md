@@ -48,8 +48,15 @@ your odds; only hashrate does. Run this for sovereignty, learning and the ticket
 
 ## Development
 
-- Tests: `python3 -I server/test_pipeline.py`, `python3 server/test_metrics_store.py` and
-  `python3 server/test_miner_poller.py` (standard library only).
+- Tests: `python3 -I server/test_pipeline.py`, `python3 server/test_metrics_store.py`,
+  `python3 server/test_miner_poller.py` and `python3 server/test_vardiff_seed.py` (standard
+  library only).
+- Difficulty seeding: with vardiff on, a newly connected miner whose own API reports its
+  hashrate gets the difficulty for the target share rate within seconds
+  (difficulty = hashrate x 60 / (target shares/min x 2^32), from the 10-minute average), instead
+  of vardiff working it out over several minutes. One shot per connection, clamped to the vardiff
+  limits, never for a paused/stopped/overheating miner. The share-rate loop stays in charge
+  afterwards, and now only counts shares mined at the current difficulty.
 - Miner monitoring: `server/miner_poller.py` reads each miner's own `GET /api/system/info`
   (AxeOS and NerdQaxe firmware) every 10 seconds, read-only. Miners are found from their Stratum
   connection; extra private LAN addresses can be listed in Settings. Results are at
