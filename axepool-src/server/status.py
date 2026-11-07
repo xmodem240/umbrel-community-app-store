@@ -7,6 +7,8 @@ Runs on the asyncio loop (reads live state safely, no threads). Routes:
     GET  /status      JSON snapshot (server + node + miners + blocks)
     GET  /metrics     Prometheus text exposition (for Grafana/Prometheus)
     GET  /history     persisted hashrate/share time-series (dashboard chart)
+    GET  /series      10s/1m/1h metrics (?range=1h|6h|24h|7d|30d|1y&miner=&since=)
+    GET  /series/miners  miner identities seen, with last-seen time
     GET  /config      settings page
     GET  /config.json current settings (password redacted, env-locked keys listed)
     POST /config      save settings -> config.json (validated), applied live
@@ -798,13 +800,14 @@ def validate_updates(updates, current):
 
 
 class StatusServer:
-    def __init__(self, server, jobs, host, port, history=None, diag=None):
+    def __init__(self, server, jobs, host, port, history=None, diag=None, metrics=None):
         self.server = server
         self.jobs = jobs
         self.host = host
         self.port = port
         self.history = history
         self.diag = diag
+        self.metrics = metrics
         self._active = 0
 
     async def start(self):
@@ -886,6 +889,8 @@ class StatusServer:
         if path.startswith("/history"):
             pts = self.history.snapshot() if self.history else []
             return _json("200 OK", {"points": pts})
+        if path.startswith("/series"):
+            return await self._series(path)
         if path.startswith("/config.json"):
             out = config.redacted(config.load())
             out["env_locked"] = config.env_locked()
@@ -936,6 +941,34 @@ class StatusServer:
                 return _json("200 OK", {"ok": True})
             return self._save_config(body)
         return "200 OK", "text/html; charset=utf-8", DASHBOARD_HTML.encode()
+
+    async def _series(self, path):
+        """GET /series?range=1h&miner=<identity>&since=<ts>  chart points
+           GET /series/miners                               identities + last seen
+        SQLite reads run in the executor so they never stall the event loop."""
+        if self.metrics is None or not self.metrics.enabled:
+            return _json("503 Service Unavailable",
+                         {"ok": False, "error": "metrics store unavailable"})
+        from urllib.parse import urlsplit, parse_qs
+        parts = urlsplit(path)
+        q = {k: v[-1] for k, v in parse_qs(parts.query).items()}
+        loop = asyncio.get_running_loop()
+        if parts.path.rstrip("/") == "/series/miners":
+            last = await loop.run_in_executor(None, self.metrics.miners)
+            return _json("200 OK", {"miners": [{"miner": m, "last_seen": t}
+                                               for m, t in sorted(last.items())]})
+        since = q.get("since")
+        if since is not None:
+            try:
+                since = int(since)
+            except ValueError:
+                return _json("400 Bad Request", {"ok": False, "error": "since must be an integer"})
+        try:
+            out = await loop.run_in_executor(
+                None, self.metrics.series, q.get("range", "1h"), q.get("miner", ""), since)
+        except ValueError as e:
+            return _json("400 Bad Request", {"ok": False, "error": str(e)})
+        return _json("200 OK", out)
 
     def _test_rpc(self):
         try:

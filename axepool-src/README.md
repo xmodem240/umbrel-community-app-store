@@ -48,7 +48,13 @@ your odds; only hashrate does. Run this for sovereignty, learning and the ticket
 
 ## Development
 
-- Tests: `python3 -I server/test_pipeline.py` (standard library only).
+- Tests: `python3 -I server/test_pipeline.py` and `python3 server/test_metrics_store.py`
+  (standard library only).
+- Metrics: `server/metrics_store.py` keeps `metrics.sqlite` in the data folder: 10-second
+  samples for 24 hours, 1-minute rollups for 30 days, 1-hour rollups for a year. It writes once
+  a minute in a single transaction. Read it at `GET /series?range=1h|6h|24h|7d|30d|1y` with
+  optional `miner=<username>` and `since=<unix time>` (for cheap incremental refreshes), and
+  `GET /series/miners`.
 - Real miner API responses used by tests live in `server/fixtures/`, with personal identifiers
   redacted.
 - Upstream's architecture notes: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).

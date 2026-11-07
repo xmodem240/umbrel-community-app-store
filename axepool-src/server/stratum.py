@@ -30,6 +30,7 @@ from diagnostics import Diagnostics, DIAG_WORKER
 from job_manager import (JobManager, EXTRANONCE1_SIZE, EXTRANONCE2_SIZE,
                          COINBASE_TAG, DIFF1_TARGET, target_from_difficulty)
 from history import History
+from metrics_store import MetricsStore, SAMPLE_INTERVAL as METRICS_TICK
 from stats import Stats, stats_path
 from status import StatusServer, human_hashrate
 from template import BlockTemplate
@@ -219,6 +220,48 @@ class StratumServer:
                     c.writer.close()
                 except Exception:
                     pass
+
+
+def collect_sample(clients, since_mono, last_rejected, now_mono=None):
+    """One metrics sample: (pool, {identity: miner}) dicts for MetricsStore.
+
+    `since_mono` is the monotonic time of the previous sample; only shares
+    accepted after it count, so consecutive samples never double-count work.
+    `last_rejected` (a WeakKeyDictionary, conn -> rejected count at the previous
+    sample) turns the per-connection reject counter into a per-interval delta.
+    Several connections with one identity (a reconnect not yet reaped) are
+    summed into one row.
+    """
+    now_mono = time.monotonic() if now_mono is None else now_mono
+    miners = {}
+    for c in clients:
+        if c.internal or not c.authorized or not c.raw_user:
+            continue
+        work = 0.0
+        acc = 0
+        for t, d in c._shares:
+            if since_mono < t <= now_mono:
+                work += d
+                acc += 1
+        prev = last_rejected.get(c, 0)
+        rej = max(0, c.rejected - prev)
+        last_rejected[c] = c.rejected
+        m = miners.setdefault(c.raw_user, {"work": 0.0, "hr_5m": 0.0, "accepted": 0,
+                                           "rejected": 0, "difficulty": None,
+                                           "workers": 1})
+        m["work"] += work
+        m["hr_5m"] += c.window_hashrate(300)
+        m["accepted"] += acc
+        m["rejected"] += rej
+        if c.difficulty is not None:
+            m["difficulty"] = max(m["difficulty"] or 0, c.difficulty)
+    pool = {"work": sum(m["work"] for m in miners.values()),
+            "hr_5m": sum(m["hr_5m"] for m in miners.values()),
+            "accepted": sum(m["accepted"] for m in miners.values()),
+            "rejected": sum(m["rejected"] for m in miners.values()),
+            "difficulty": None,
+            "workers": len(miners)}
+    return pool, miners
 
 
 class ClientConn:
@@ -895,6 +938,7 @@ async def main():
                       b.get("hash"), b["status"])
             stats.update_block()
     history = History()
+    metrics = MetricsStore()
     jobs = JobManager(rpc, cfg["share_difficulty"], POLL_INTERVAL,
                       vardiff=vardiff, webhook_url=cfg["webhook_url"], stats=stats,
                       notify_block=cfg["notify_block"],
@@ -913,7 +957,7 @@ async def main():
 
     diag = Diagnostics(server, jobs, cfg["stratum_port"])
     status = StatusServer(server, jobs, STATUS_HOST, cfg["status_port"], history,
-                          diag=diag)
+                          diag=diag, metrics=metrics)
     await status.start()
     log.info("Status dashboard on http://<umbrel-ip>:%d/  (JSON at /status)",
              cfg["status_port"])
@@ -947,6 +991,25 @@ async def main():
             except Exception as e:
                 log.debug("history sample error: %s", e)
 
+    async def metrics_loop():
+        import weakref
+        last_rejected = weakref.WeakKeyDictionary()
+        prev = time.monotonic()
+        while True:
+            # Sleep to the next 10 s wall-clock boundary so samples line up
+            # with their buckets instead of drifting across them.
+            await asyncio.sleep(METRICS_TICK - (time.time() % METRICS_TICK) + 0.05)
+            try:
+                now = time.monotonic()
+                pool, miners = collect_sample(list(server.clients), prev,
+                                              last_rejected, now)
+                prev = now
+                metrics.add_sample(time.time(), pool, miners)
+                if metrics.due():
+                    await metrics.aflush()
+            except Exception as e:
+                log.debug("metrics sample error: %s", e)
+
     # Flush lifetime stats on a clean shutdown (Umbrel sends SIGTERM with a 1m
     # grace period) so throttled counters land on disk instead of being lost.
     # The handler also trips a stop event so the container exits promptly
@@ -974,6 +1037,7 @@ async def main():
     asyncio.create_task(vardiff_loop())
     asyncio.create_task(offline_loop())
     asyncio.create_task(history_loop())
+    asyncio.create_task(metrics_loop())
     try:
         async with srv:
             serve_task = asyncio.create_task(srv.serve_forever())
@@ -998,6 +1062,7 @@ async def main():
     finally:
         stats.flush()
         history.flush()
+        metrics.close()
 
 
 if __name__ == "__main__":
