@@ -11,8 +11,8 @@ description: >-
   whole reward goes to your address. No pool, no fees, no custody.
 
 
-  Set the miner's Stratum username to your BCH address (bitcoincash:q... with an optional .worker
-  name) and that address is paid in the coinbase. The dashboard shows node sync, connected miners,
+  Set the miner's Stratum username to your BCH address (bitcoincash:q... or legacy 1..., with an
+  optional .worker name) and that address is paid in the coinbase. The dashboard shows node sync, connected miners,
   hashrate, shares, best share and any blocks found.
 
 

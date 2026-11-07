@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-AxePool - CashAddr (Bitcoin Cash address) decoder/encoder.
+AxePool - Bitcoin Cash address decoder/encoder (CashAddr + legacy Base58).
 
-Only CashAddr (bitcoincash:q.../p...) payout addresses are supported; legacy
-Base58 addresses are NOT decoded here (convert them to CashAddr first). There is
-NO SegWit/bech32 on BCH, so Bitcoin `bc1...` addresses are intentionally rejected.
+Accepts CashAddr (bitcoincash:q.../p..., with or without the prefix) and, for
+miners still configured with one, mainnet legacy Base58 addresses (1... P2PKH,
+3... P2SH): a legacy address carries the same hash, so it pays the same script.
+There is NO SegWit/bech32 on BCH, so Bitcoin `bc1...` addresses are rejected;
+testnet legacy addresses (m/n/2...) are rejected too.
 We need this to turn a configured payout address into the coinbase output
 script, and to validate whether a Stratum username is a usable BCH address.
 
@@ -12,7 +14,11 @@ Reference: https://github.com/bitcoincashorg/bitcoincash.org/blob/master/spec/ca
 Standard library only. Run directly to execute the test vectors:  python3 cashaddr.py
 """
 
+import hashlib
+
 CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_LEGACY_VERSION = {0x00: "p2pkh", 0x05: "p2sh"}      # mainnet only
 _CHARMAP = {c: i for i, c in enumerate(CHARSET)}
 
 # version-byte low 3 bits -> hash length in bytes
@@ -72,14 +78,50 @@ def _convertbits(data, frombits, tobits, pad=True):
     return ret
 
 
-def decode(address, default_prefix="bitcoincash"):
-    """Decode a CashAddr string -> {'prefix','type','hash'(bytes)}.
+def is_legacy_form(address):
+    """True when `address` is shaped like a Base58 legacy address. Unambiguous:
+    Base58 addresses are 26-35 characters, a prefix-less CashAddr is 42+, and
+    a prefixed one contains ':'."""
+    return (isinstance(address, str) and 26 <= len(address.strip()) <= 35
+            and all(c in B58 for c in address.strip()))
 
-    Raises CashAddrError for anything that isn't a valid BCH CashAddr (including
-    Bitcoin bech32 `bc1...` addresses)."""
+
+def decode_legacy(address):
+    """Decode a mainnet legacy Base58Check address -> same dict as decode()."""
+    address = address.strip()
+    n = 0
+    for c in address:
+        i = B58.find(c)
+        if i < 0:
+            raise CashAddrError(f"invalid Base58 character: {c!r}")
+        n = n * 58 + i
+    zeros = len(address) - len(address.lstrip("1"))
+    raw = b"\x00" * zeros + (n.to_bytes((n.bit_length() + 7) // 8, "big") if n else b"")
+    if len(raw) != 25:
+        raise CashAddrError("legacy address has the wrong length")
+    payload, check = raw[:-4], raw[-4:]
+    if hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4] != check:
+        raise CashAddrError("bad checksum (mistyped legacy address)")
+    kind = _LEGACY_VERSION.get(payload[0])
+    if kind is None:
+        raise CashAddrError(f"legacy address version {payload[0]} is not a mainnet "
+                            "1... or 3... address (testnet addresses are not accepted)")
+    return {"prefix": "bitcoincash", "type": kind, "hash": payload[1:]}
+
+
+def decode(address, default_prefix="bitcoincash"):
+    """Decode a BCH address -> {'prefix','type','hash'(bytes)}.
+
+    CashAddr, with or without prefix, or a mainnet legacy 1.../3... address.
+    Raises CashAddrError for anything else (including Bitcoin bech32 `bc1...`)."""
     if not isinstance(address, str):
         raise CashAddrError("address must be a string")
     address = address.strip()
+    if is_legacy_form(address):
+        return decode_legacy(address)
+    if address.lower().startswith(("bc1", "tb1")):
+        raise CashAddrError("Bitcoin bc1 addresses cannot receive BCH; use a "
+                            "bitcoincash: (or legacy 1...) address")
     if address != address.lower() and address != address.upper():
         raise CashAddrError("mixed-case address")
     if ":" in address:
@@ -139,6 +181,12 @@ def to_script(address):
     if len(h) == 32:
         return b"\xaa\x20" + h + b"\x87"                   # P2SH32: OP_HASH256 <32> OP_EQUAL
     raise CashAddrError("P2SH address must carry a 160- or 256-bit hash")
+
+
+def to_cashaddr(address):
+    """Any accepted address -> its canonical CashAddr string (for logs/display)."""
+    d = decode(address)
+    return encode(d["prefix"], d["type"], d["hash"])
 
 
 def is_valid_bch_address(address):
@@ -213,8 +261,27 @@ def _selftest():
     print(f"{'PASS' if upper_ok else 'FAIL'}  all-upper-case address accepted")
     ok, fail = ok + upper_ok, fail + (not upper_ok)
 
+    # Legacy Base58 <-> CashAddr pairs from the CashAddr spec: same hash, same script.
+    for legacy, cash in (("1BpEi6DfDAUFd7GtittLSdBeYJvcoaVggu",
+                          "bitcoincash:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"),
+                         ("3CWFddi6m4ndiGyKqzYvsFYagqDLPVMTzC",
+                          "bitcoincash:ppm2qsznhks23z7629mms6s4cwef74vcwvn0h829pq")):
+        try:
+            same = to_script(legacy) == to_script(cash) and to_cashaddr(legacy) == cash
+        except CashAddrError as e:
+            same = False
+            print(f"      {e}")
+        print(f"{'PASS' if same else 'FAIL'}  legacy {legacy} -> {cash}")
+        ok, fail = ok + same, fail + (not same)
+
     # Negative cases
     negatives = [
+        ("legacy with a mistyped character must be rejected",
+         "1BpEi6DfDAUFd7GtittLSdBeYJvcoaVggv"),
+        ("testnet legacy (m...) must be rejected",
+         "mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn"),
+        ("testnet P2SH legacy (2...) must be rejected",
+         "2MzQwSSnBHWHqSAqtTVQ6v47XtaisrJa1Vc"),
         ("mixed-case address must be rejected",
          "bitcoincash:Qpm2qsznhks23z7629mms6s4cwef74vcwvy22gdx6a"),
         ("Bitcoin bech32 (bc1) must be rejected",

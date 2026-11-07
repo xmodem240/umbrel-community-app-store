@@ -27,6 +27,7 @@ jobs:
           python-version: "3.13"
       - run: python -m py_compile server/*.py
       - run: python -I server/test_pipeline.py
+      - run: python -I server/cashaddr.py
       - run: python server/test_metrics_store.py
       - run: python server/test_miner_poller.py
       - run: python server/test_vardiff_seed.py

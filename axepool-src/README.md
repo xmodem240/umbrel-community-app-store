@@ -25,12 +25,14 @@ to merge.
 ## Point your miners at it
 
 - **URL:** `stratum+tcp://<your-umbrel-ip>:3344`
-- **Username:** your BCH **CashAddr** address, optionally with a worker name:
-  `bitcoincash:qxxxx….rig1`. That address is paid in the coinbase.
+- **Username:** your BCH address, optionally with a worker name: `bitcoincash:qxxxx….rig1`.
+  A legacy `1…` or `3…` address also works (`1xxxx….rig1`); it pays the same coinbase script as
+  its CashAddr form, which the log shows when the miner connects.
 - **Password:** anything (ignored).
 
-Only CashAddr is accepted as the username. Legacy `1…` addresses and Bitcoin `bc1…` addresses are
-rejected on purpose. Give each miner its own worker name so they show as separate rows.
+Bitcoin `bc1…` addresses and testnet addresses are rejected. A legacy `1…` address looks the same
+on Bitcoin and Bitcoin Cash: make sure the wallet behind it can spend BCH. Give each miner its own
+worker name so they show as separate rows.
 
 ## Ports
 

@@ -524,6 +524,9 @@ class ClientConn:
             "connected_ago": now_wall - self.connected_wall,
             "hashrate_hps": hr,
             "hashrate": human_hashrate(hr),
+            # Joins this row to /devices (linked_identity) and /series (miner=).
+            "identity": self.raw_user,
+            "shares_per_min": self.shares_in(300) / 5.0,
         }
 
     async def send(self, obj):
@@ -694,7 +697,11 @@ class ClientConn:
         if self.internal:
             log.info("%s diagnostics self-test client authorized", self._tag())
         else:
-            log.info("%s authorized — payout %s", self._tag(), self.payout_address)
+            if cashaddr.is_legacy_form(addr_part):
+                log.info("%s authorized — payout %s (legacy form of %s)", self._tag(),
+                         self.payout_address, cashaddr.to_cashaddr(addr_part))
+            else:
+                log.info("%s authorized — payout %s", self._tag(), self.payout_address)
             # A reconnect (e.g. after an internet drop) leaves the old, now-dead
             # connection lingering until its socket times out. Now that this
             # fresh one is authorized, evict that stale twin so it can't
