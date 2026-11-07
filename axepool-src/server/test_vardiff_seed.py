@@ -201,6 +201,11 @@ def test_window_fix():
     # A miner with no change history still retargets normally (upstream behaviour).
     c3 = conn(age=200)
     t = time.monotonic()
+    # Set the timestamps explicitly: their 0.0 defaults mean "at boot", so on a
+    # machine up for under 45 s (a fresh CI runner) the retarget interval
+    # guard would block this check. Seen in CI; reproduced with uptime_sim.
+    c3._last_vardiff = t - 100
+    c3._diff_changed = c3.connected_mono
     for i in range(240):                       # 120 shares/min for 120 s at diff 1000
         c3._shares.append((t - 119.5 + i * 0.5, 1000))
     run(c3.maybe_retarget())
