@@ -68,6 +68,11 @@ jobs:
         run: |
           docker run --rm --entrypoint python3 axepool:check -c \
             "import sqlite3, sys; sys.path.insert(0, '/app/server'); import stratum, status, metrics_store, miner_poller, cashaddr; print('ok sqlite', sqlite3.sqlite_version)"
+          # pip and setuptools are removed from the image on purpose (see Dockerfile).
+          docker run --rm --entrypoint python3 axepool:check -c \
+            "import importlib.util as u; bad=[m for m in ('pip','setuptools','ensurepip') if u.find_spec(m)]; assert not bad, bad; print('no pip/setuptools')"
+          # The image must still run as the non-root user.
+          test "$(docker run --rm --entrypoint id axepool:check -u)" != "0"
       # Block the release on any HIGH/CRITICAL vulnerability that has a fix available.
       # Third-party action pinned to a commit (v0.36.0, 2026-04-22).
       - name: Trivy vulnerability scan
