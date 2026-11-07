@@ -1,0 +1,39 @@
+manifestVersion: 1
+id: kyle-axepool
+category: bitcoin
+name: AxePool
+icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/axepool-icon.svg
+version: "0.1.0"
+tagline: Solo mine Bitcoin Cash with your Bitaxe and NerdQaxe miners
+description: >-
+  AxePool is a self-hosted Bitcoin Cash (BCH) solo-mining Stratum server for your own Bitcoin Cash
+  Node. Point a Bitaxe, NerdQaxe or any Stratum V1 miner at it; if your hardware finds a block, the
+  whole reward goes to your address. No pool, no fees, no custody.
+
+
+  Set the miner's Stratum username to your BCH address (bitcoincash:q... with an optional .worker
+  name) and that address is paid in the coinbase. The dashboard shows node sync, connected miners,
+  hashrate, shares, best share and any blocks found.
+
+
+  Requires the official Bitcoin Cash Node app, fully synced. It connects to the node automatically.
+  Point miners at stratum+tcp://<your-umbrel-ip>:3344.
+
+
+  Early release. Based on the MIT-licensed SoloBCH Forge by DanCreatesStuff.
+releaseNotes: >-
+  First AxePool release: SoloBCH Forge 1.1.3 renamed and repackaged for this store. Miner API
+  monitoring and live graphs are coming in later releases.
+developer: Kyle
+website: https://github.com/xmodem240/umbrel-community-app-store
+dependencies:
+  - bitcoin-cash-node
+repo: https://github.com/xmodem240/umbrel-community-app-store
+support: https://github.com/xmodem240/umbrel-community-app-store/issues
+port: 8793
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+submitter: Kyle
+submission: https://github.com/xmodem240/umbrel-community-app-store

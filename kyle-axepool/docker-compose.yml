@@ -1,0 +1,55 @@
+version: "3.7"
+
+# AxePool: BCH solo-mining Stratum server for the official Umbrel "Bitcoin Cash Node" app.
+#
+# NODE. Connects using the values the official Bitcoin Cash Node app (id bitcoin-cash-node)
+# exports to every app (see its exports.sh). Cross-app DNS by service name does not work under
+# umbreld, so the node is reached by its injected IP. Environment values win over config.json,
+# so these fields show as locked on the Settings page.
+#
+# IMAGE: built by .github/workflows/build-axepool.yml from axepool-src/. The GHCR package must be
+# set to public once, or Umbrel cannot pull it.
+#
+# Hardening (read-only root, tmpfs /tmp, no capabilities, no-new-privileges) matches the
+# Bitcoin Cash Lab packaging in this store.
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: kyle-axepool_server_1
+      APP_PORT: 3335
+
+  server:
+    image: ghcr.io/xmodem240/axepool:0.1.0
+    # Umbrel owns the app's data dir as UID 1000; the shipped data/ folder is copied in
+    # 1000-owned on install.
+    user: "1000:1000"
+    init: true
+    restart: on-failure
+    stop_grace_period: 1m
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    ports:
+      - "3344:3334"                 # Stratum for miners (LAN). Host port 3344 avoids SoloBCH Forge (3334) and AxeBCH (4567).
+    volumes:
+      - ${APP_DATA_DIR}/data:/data  # persistent config.json + stats + history
+    # The default json-file driver never rotates: cap logs so share lines cannot fill the disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      APP_DATA_DIR: /data
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      BCHN_RPC_HOST: ${APP_BITCOIN_CASH_NODE_NODE_IP}
+      BCHN_RPC_PORT: ${APP_BITCOIN_CASH_NODE_RPC_PORT}
+      BCHN_RPC_USER: ${APP_BITCOIN_CASH_NODE_RPC_USER}
+      BCHN_RPC_PASSWORD: ${APP_BITCOIN_CASH_NODE_RPC_PASS}
+      SOLOBCH_ZMQ_ENDPOINT: tcp://${APP_BITCOIN_CASH_NODE_NODE_IP}:${APP_BITCOIN_CASH_NODE_ZMQ_HASHBLOCK_PORT}

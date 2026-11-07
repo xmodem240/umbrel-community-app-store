@@ -7,6 +7,7 @@ Add this store in Umbrel: **App Store -> ... menu -> Community App Stores** -> `
 | **Bitaxe Tuner** (`kyle-bitaxe-tuner`) | Finds safe overclock profiles for a Bitaxe | `src/` |
 | **Bitaxe Autotuner** (`kyle-bitaxe-autotune`) | Runs the Bitaxe Tuner sweep, then keeps adjusting the miner live within its tested-stable settings (one miner). See `autotune-src/README.md` | `autotune-src/` |
 | **Bitcoin Cash Lab** (`kyle-bch-lab`) | Ranks which peers deliver new Bitcoin Cash blocks first; optional pool latency race. Node software selectable on the dashboard: LoneStrike Labs BCHN app, WillItMod AxeBCH (enter its RPC password), or any BCHN-compatible node | `bch-lab-src/` |
+| **AxePool** (`kyle-axepool`) | Bitcoin Cash solo-mining Stratum server for Bitaxe/NerdQaxe miners, on the official Bitcoin Cash Node app. Miners connect to port 3344 with a CashAddr username. See `axepool-src/README.md` | `axepool-src/` |
 
 Each app's image is built by its own workflow in `.github/workflows/` and published to
 `ghcr.io/xmodem240/`. A new package must be set to **public** in GitHub -> Packages once, or Umbrel
@@ -15,6 +16,9 @@ cannot pull it.
 Bitcoin Cash Lab is a port of the MIT-licensed [Bitcoin Lab](https://github.com/benunskilled/bitcoin-lab)
 by benunskilled. Its own docs are in `bch-lab-src/` (start with `docs/bch-differences.md`, which lists what is
 still unverified).
+
+AxePool is a fork of the MIT-licensed [SoloBCH Forge](https://github.com/DanCreatesStuff/SoloBCHForge)
+by DanCreatesStuff. Its own docs are in `axepool-src/`.
 
 ---
 

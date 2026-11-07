@@ -1,0 +1,58 @@
+name: Build AxePool image
+on:
+  push:
+    branches: [main]
+    paths:
+      - "axepool-src/**"
+      - "kyle-axepool/umbrel-app.yml"
+      - ".github/workflows/build-axepool.yml"
+  pull_request:
+    paths:
+      - "axepool-src/**"
+      - ".github/workflows/build-axepool.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: axepool-src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m py_compile server/*.py
+      - run: python -I server/test_pipeline.py
+  build:
+    needs: test
+    # Pull requests only run the tests; images are published from main.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        run: |
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr A-Z a-z)" >> "$GITHUB_OUTPUT"
+          # The image tag is the version in umbrel-app.yml, so it always matches docker-compose.yml.
+          v="$(sed -nE 's/^version:[[:space:]]*"?([^"]+)"?[[:space:]]*$/\1/p' kyle-axepool/umbrel-app.yml)"
+          test -n "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: axepool-src
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.owner }}/axepool:${{ steps.meta.outputs.version }}
+            ghcr.io/${{ steps.meta.outputs.owner }}/axepool:latest

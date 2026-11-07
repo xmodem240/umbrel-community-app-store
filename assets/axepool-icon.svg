@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AxePool">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B2433"/>
+      <stop offset="1" stop-color="#0D131C"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- pool: three ripples -->
+  <ellipse cx="256" cy="372" rx="168" ry="44" fill="none" stroke="#0AC18E" stroke-width="14" opacity="0.35"/>
+  <ellipse cx="256" cy="372" rx="112" ry="28" fill="none" stroke="#0AC18E" stroke-width="14" opacity="0.6"/>
+  <ellipse cx="256" cy="372" rx="56" ry="13" fill="#0AC18E"/>
+  <!-- rising hashrate bars -->
+  <rect x="162" y="246" width="40" height="84" rx="10" fill="#0AC18E" opacity="0.55"/>
+  <rect x="236" y="188" width="40" height="142" rx="10" fill="#0AC18E" opacity="0.8"/>
+  <rect x="310" y="120" width="40" height="210" rx="10" fill="#0AC18E"/>
+</svg>

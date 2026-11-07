@@ -1,0 +1,25 @@
+# Secrets — never commit real RPC credentials
+.env
+*.env
+!.env.example
+
+# Runtime / app data (dev/standalone writes ./data at the repo root only —
+# do NOT ignore the app's shipped axepool/data/ template dir)
+/data/
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local source screenshots (gallery JPGs live in axepool/)
+/Screenshots/
