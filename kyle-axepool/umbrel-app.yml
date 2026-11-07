@@ -3,7 +3,7 @@ id: kyle-axepool
 category: bitcoin
 name: AxePool
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/axepool-icon.svg
-version: "0.3.2"
+version: "0.4.0"
 tagline: Solo mine Bitcoin Cash with your Bitaxe and NerdQaxe miners
 description: >-
   AxePool is a self-hosted Bitcoin Cash (BCH) solo-mining Stratum server for your own Bitcoin Cash
@@ -22,10 +22,10 @@ description: >-
 
   Early release. Based on the MIT-licensed SoloBCH Forge by DanCreatesStuff.
 releaseNotes: >-
-  Fixes "Low difficulty share" rejects after the pool raises a miner's difficulty. Miners keep
-  working on jobs they already have at the old difficulty until the next job arrives, and those
-  shares are now accepted and counted at that difficulty. Vardiff now weighs shares by their
-  difficulty, so it no longer over-raises after a change. Block odds were never affected.
+  Each miner card now shows whether its firmware is up to date: AxeOS and NerdQaxe versions are
+  compared with the latest stable release on GitHub (the same source the miner's own update page
+  uses), with a link to the release notes. Check only - AxePool never updates a miner. Checked
+  every 6 hours; switch it off under Settings, Miner monitoring.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies:

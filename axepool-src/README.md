@@ -53,6 +53,10 @@ your odds; only hashrate does. Run this for sovereignty, learning and the ticket
 - Tests: `python3 -I server/test_pipeline.py`, `python3 server/test_metrics_store.py`,
   `python3 server/test_miner_poller.py` and `python3 server/test_vardiff_seed.py` (standard
   library only).
+- Firmware check: `server/firmware_check.py` compares each polled miner's firmware version with
+  the newest stable release on GitHub (AxeOS: bitaxeorg/esp-miner, NerdQaxe:
+  shufps/ESP-Miner-NerdQAxePlus), at most every 6 hours, cached in `firmware.json`. Read-only:
+  it never contacts or updates a miner. Switch: Settings, Miner monitoring.
 - Difficulty seeding: with vardiff on, a newly connected miner whose own API reports its
   hashrate gets the difficulty for the target share rate within seconds
   (difficulty = hashrate x 60 / (target shares/min x 2^32), from the 10-minute average), instead

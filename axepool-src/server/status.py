@@ -316,6 +316,8 @@ details.tbl table{margin-top:8px}
 .mgrid .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mgrid .v small{color:#8b949e;font-weight:600;font-size:11px}
 .mnote{color:#8b949e;font-size:12px;margin-top:8px}
+.mfw{margin-top:8px;font-size:12px;color:#8b949e;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
+.mfw b{color:#e6edf3;font-weight:600}.mfw a{color:#58a6ff;text-decoration:none}.mfw a:hover{text-decoration:underline}
 .mcharts{margin-top:12px;border-top:1px solid #21262d;padding-top:10px}
 .mcharts .sub{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:8px}
 </style></head><body>
@@ -539,6 +541,26 @@ const STATE={mining:['ok','● Mining'],idle:['warn','○ Idle'],stopped:['warn'
  overheat:['bad','▲ Overheating'],offline:['bad','✕ API unreachable'],pending:['dim','… Checking API']};
 function badge(st){const v=STATE[st]||['dim',st];return '<span class="badge '+v[0]+'">'+esc(v[1])+'</span>';}
 function mc(k,v){return '<div><div class="k">'+k+'</div><div class="v">'+v+'</div></div>';}
+function fwDate(iso){const d=iso?new Date(iso):null;return d&&!isNaN(d)?d.toLocaleDateString([],{year:'numeric',month:'short',day:'numeric'}):null;}
+function fwLine(d){
+ // Read-only: shows the result of the server's GitHub check and links to the notes.
+ const f=d&&d.firmware_status,dm=d&&d.miner;if(!f||!dm)return '';
+ const cur='Firmware <b>'+esc(dm.version||'?')+'</b>';
+ const checked=f.checked_at?'checked '+ago(Date.now()/1000-f.checked_at)+' ago':'';
+ const failed=f.error?'last check failed: '+esc(f.error):'';
+ const link=(f.url&&String(f.url).indexOf('https://github.com/')===0)?'<a href="'+esc(f.url)+'" target="_blank" rel="noopener noreferrer">Release notes ↗</a>':'';
+ const rel=fwDate(f.published_at);
+ let st;
+ if(f.state==='current')st='<span class="badge ok">✓ Up to date</span>';
+ else if(f.state==='update')st='<span class="badge warn">⬆ Update available: <b>'+esc(f.latest)+'</b></span>'+(rel?'<span>released '+esc(rel)+'</span>':'')+link;
+ else if(f.state==='ahead')st='<span class="badge">Newer than latest stable '+esc(f.latest)+' (beta or test build)</span>'+link;
+ else if(f.state==='custom')st='<span class="badge">Custom build of '+esc(f.latest)+'</span>';
+ else if(f.state==='unchecked')st='<span>'+(f.error?'Can’t check yet':'Checking for updates…')+'</span>';
+ else if(f.state==='off')st='<span>Update check off (Settings)</span>';
+ else st='<span>Can’t compare ('+esc(f.reason||'unknown')+')</span>';
+ const tail=[f.state==='off'?'':checked,failed].filter(Boolean).join(' · ');
+ return '<div class="mfw">'+cur+st+(tail?'<span>· '+tail+'</span>':'')+'</div>';
+}
 function devFor(id){return gDevices?(gDevices.miners||[]).find(d=>d.linked_identity===id)||null:null;}
 
 function cardHtml(m,d){
@@ -572,14 +594,14 @@ function cardHtml(m,d){
   :'Miner API not reached yet. If this lasts, add the miner’s address under Settings → Miner monitoring.';
  else if(d.status==='offline')note='Miner API unreachable: '+(d.last_error||'no answer')+'. Pool figures are still live.';
  else if(dm&&dm.on_fallback_pool)note='The miner reports it is on its fallback pool.';
- return {head:'<div><div class="mn">'+esc(name)+'</div><div class="mm">'+meta+'</div></div><div class="mhr">'+st
+ return {fw:fwLine(d),head:'<div><div class="mn">'+esc(name)+'</div><div class="mm">'+meta+'</div></div><div class="mhr">'+st
    +(m?'<span class="chev" aria-hidden="true">'+(gOpen===m.identity?'▴':'▾')+'</span>':'')+'</div>',cells:cells,note:note};
 }
 
 function ensureCard(key,openable){
  let el=mEls[key];if(el)return el;
  el=document.createElement('div');el.className='mcard';
- el.innerHTML='<div class="mh"></div><div class="mgrid"></div><div class="mnote" hidden></div>'
+ el.innerHTML='<div class="mh"></div><div class="mgrid"></div><div class="mfwbox"></div><div class="mnote" hidden></div>'
   +'<div class="mcharts" hidden><div class="sub">Hashrate <span class="dim">(this miner)</span></div><div class="legend"></div><div class="chart"></div>'
   +'<div class="sub">Hottest chip</div><div class="chart"></div></div>';
  if(openable){const h=el.querySelector('.mh');h.setAttribute('role','button');h.tabIndex=0;
@@ -600,7 +622,7 @@ function renderCards(){
  Object.keys(mEls).forEach(k=>{if(!keep.has(k)){mEls[k].remove();delete mEls[k];if(gOpen===k)gOpen=null;}});
  want.forEach(([k,el,c])=>{
   el.querySelector('.mh').innerHTML=c.head;el.querySelector('.mh').setAttribute('aria-expanded',gOpen===k?'true':'false');
-  el.querySelector('.mgrid').innerHTML=c.cells;
+  el.querySelector('.mgrid').innerHTML=c.cells;el.querySelector('.mfwbox').innerHTML=c.fw;
   const n=el.querySelector('.mnote');n.hidden=!c.note;n.textContent=c.note;
   el.querySelector('.mcharts').hidden=gOpen!==k;box.appendChild(el);});
  document.getElementById('mHead').hidden=!want.length;
@@ -847,8 +869,10 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;ma
 <h2>Miner monitoring</h2>
 <label>Read miners' own API</label>
 <select id="miner_api_enabled"><option value="true">On — read hashrate, temps &amp; power from each miner</option><option value="false">Off</option></select>
+<label>Check miner firmware for updates</label>
+<select id="firmware_check_enabled"><option value="true">On — compare with the latest GitHub release</option><option value="false">Off</option></select>
 <label>Extra miner addresses <span class="note">(optional)</span></label><input id="miner_api_hosts" placeholder="192.168.1.20 192.168.1.21">
-<div class="note">Read-only: AxePool only ever reads <code>/api/system/info</code> and never changes a miner's settings. Miners connected to this pool are found automatically; list a miner here only if it is missing (for example behind another router). Private LAN addresses only, separated by spaces or commas.</div>
+<div class="note">Read-only: AxePool only ever reads <code>/api/system/info</code> and never changes a miner's settings. Miners connected to this pool are found automatically; list a miner here only if it is missing (for example behind another router). Private LAN addresses only, separated by spaces or commas. The firmware check asks GitHub (api.github.com) for the newest stable AxeOS / NerdQaxe release at most every 6 hours; it never updates a miner.</div>
 </div>
 
 <div class="sec">
@@ -875,8 +899,8 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;ma
 <div id="msg"></div>
 </div>
 <script>
-const FIELDS=['bchn_rpc_host','bchn_rpc_port','bchn_rpc_user','stratum_port','status_port','share_difficulty','vardiff_enabled','vardiff_target_spm','vardiff_min','vardiff_max','webhook_url','miner_api_enabled','miner_api_hosts'];
-const BOOL_FIELDS=['vardiff_enabled','miner_api_enabled'];
+const FIELDS=['bchn_rpc_host','bchn_rpc_port','bchn_rpc_user','stratum_port','status_port','share_difficulty','vardiff_enabled','vardiff_target_spm','vardiff_min','vardiff_max','webhook_url','miner_api_enabled','miner_api_hosts','firmware_check_enabled'];
+const BOOL_FIELDS=['vardiff_enabled','miner_api_enabled','firmware_check_enabled'];
 const CHECK_FIELDS=['notify_block','notify_best_share','notify_miner_offline'];
 const JSON_HDR={'content-type':'application/json'};
 async function postJSON(url,body){return (await fetch(url,{method:'POST',headers:JSON_HDR,body:JSON.stringify(body||{})})).json();}
@@ -1091,7 +1115,8 @@ def validate_updates(updates, current):
         updates["miner_api_hosts"] = " ".join(
             ip if port == 80 else f"{ip}:{port}" for ip, port in hosts)
     for k in ("vardiff_enabled", "notify_block", "notify_best_share",
-              "notify_miner_offline", "zmq_enabled", "miner_api_enabled"):
+              "notify_miner_offline", "zmq_enabled", "miner_api_enabled",
+              "firmware_check_enabled"):
         v = updates.get(k)
         if v is None or isinstance(v, bool):
             continue
@@ -1104,7 +1129,7 @@ def validate_updates(updates, current):
 
 class StatusServer:
     def __init__(self, server, jobs, host, port, history=None, diag=None, metrics=None,
-                 poller=None):
+                 poller=None, firmware=None):
         self.server = server
         self.jobs = jobs
         self.host = host
@@ -1113,6 +1138,7 @@ class StatusServer:
         self.diag = diag
         self.metrics = metrics
         self.poller = poller
+        self.firmware = firmware
         self._active = 0
 
     async def start(self):
@@ -1202,7 +1228,14 @@ class StatusServer:
                              {"ok": False, "error": "miner polling unavailable"})
             ids = [c.raw_user for c in self.server.clients
                    if c.authorized and not c.internal and c.raw_user]
-            return _json("200 OK", self.poller.snapshot(ids))
+            snap = self.poller.snapshot(ids)
+            if self.firmware is not None:
+                for row in snap["miners"]:
+                    m = row.get("miner")
+                    row["firmware_status"] = (self.firmware.status(m.get("firmware"),
+                                                                   m.get("version"))
+                                              if m else None)
+            return _json("200 OK", snap)
         if path.startswith("/config.json"):
             out = config.redacted(config.load())
             out["env_locked"] = config.env_locked()
@@ -1373,6 +1406,8 @@ class StatusServer:
             if self.poller is not None:
                 self.poller.enabled = cfg["miner_api_enabled"]
                 self.poller.set_manual(parse_target_list(cfg["miner_api_hosts"]))
+            if self.firmware is not None:
+                self.firmware.enabled = cfg["firmware_check_enabled"]
         except Exception as e:
             return ("500 Internal Server Error", "application/json",
                     json.dumps({"ok": False, "error": str(e)}).encode())

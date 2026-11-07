@@ -32,6 +32,7 @@ from job_manager import (JobManager, EXTRANONCE1_SIZE, EXTRANONCE2_SIZE,
 from history import History
 from metrics_store import MetricsStore, SAMPLE_INTERVAL as METRICS_TICK
 from miner_poller import MinerPoller, parse_target_list
+from firmware_check import FirmwareChecker
 from stats import Stats, stats_path
 from status import StatusServer, human_hashrate
 from template import BlockTemplate
@@ -1072,6 +1073,7 @@ async def main():
         log.warning("ignoring saved miner addresses (%s)", e)
         manual = []
     poller = MinerPoller(enabled=cfg["miner_api_enabled"], manual=manual)
+    firmware = FirmwareChecker(enabled=cfg["firmware_check_enabled"])
     jobs = JobManager(rpc, cfg["share_difficulty"], POLL_INTERVAL,
                       vardiff=vardiff, webhook_url=cfg["webhook_url"], stats=stats,
                       notify_block=cfg["notify_block"],
@@ -1091,7 +1093,7 @@ async def main():
 
     diag = Diagnostics(server, jobs, cfg["stratum_port"])
     status = StatusServer(server, jobs, STATUS_HOST, cfg["status_port"], history,
-                          diag=diag, metrics=metrics, poller=poller)
+                          diag=diag, metrics=metrics, poller=poller, firmware=firmware)
     await status.start()
     log.info("Status dashboard on http://<umbrel-ip>:%d/  (JSON at /status)",
              cfg["status_port"])
@@ -1146,6 +1148,22 @@ async def main():
             except Exception as e:
                 log.debug("metrics sample error: %s", e)
 
+    async def firmware_loop():
+        # Checks only the firmwares of miners currently being read, at most
+        # every 6 h each (firmware_check.CHECK_INTERVAL); the fetch runs off the
+        # event loop.
+        await asyncio.sleep(30)
+        while True:
+            try:
+                in_use = {t.data["firmware"] for t in list(poller.targets.values())
+                          if t.data and t.data.get("firmware")}
+                if firmware.due(in_use):
+                    await asyncio.get_running_loop().run_in_executor(
+                        None, firmware.refresh, in_use)
+            except Exception as e:
+                log.debug("firmware check error: %s", e)
+            await asyncio.sleep(60)
+
     async def poller_loop():
         # Short tick; each miner is only read when it is due (10 s when healthy,
         # backing off to 2 min when unreachable), so this is cheap.
@@ -1191,6 +1209,7 @@ async def main():
     asyncio.create_task(history_loop())
     asyncio.create_task(metrics_loop())
     asyncio.create_task(poller_loop())
+    asyncio.create_task(firmware_loop())
     try:
         async with srv:
             serve_task = asyncio.create_task(srv.serve_forever())

@@ -33,6 +33,7 @@ jobs:
       - run: python server/test_vardiff_seed.py
       - run: python server/test_ports.py
       - run: python server/test_diff_change.py
+      - run: python server/test_firmware_check.py
   build:
     needs: test
     # Pull requests only run the tests. Other branches (workflow_dispatch) build, smoke test
@@ -74,6 +75,14 @@ jobs:
             "import importlib.util as u; bad=[m for m in ('pip','setuptools','ensurepip') if u.find_spec(m)]; assert not bad, bad; print('no pip/setuptools')"
           # The image must still run as the non-root user.
           test "$(docker run --rm --entrypoint id axepool:check -u)" != "0"
+          # The firmware check calls api.github.com over HTTPS: the image needs root CAs.
+          docker run --rm --entrypoint python3 axepool:check -c \
+            "import ssl, os; p = ssl.get_default_verify_paths(); f = p.cafile or p.openssl_cafile; assert f and os.path.isfile(f) and os.path.getsize(f) > 10000, p; print('CA bundle', f, os.path.getsize(f))"
+      # Real GitHub API call from inside the image. Informational: a GitHub outage or
+      # rate limit must not block a release, but the log shows the latest releases.
+      - name: Live firmware check from the image
+        continue-on-error: true
+        run: docker run --rm --entrypoint python3 axepool:check /app/server/firmware_check.py
       # Block the release on any HIGH/CRITICAL vulnerability that has a fix available.
       # Third-party action pinned to a commit (v0.36.0, 2026-04-22).
       - name: Trivy vulnerability scan

@@ -38,6 +38,7 @@ DEFAULTS = {
     "hidden_cards": [],                # dashboard card ids the user has hidden (UI pref)
     "miner_api_enabled": True,         # read each miner's own API (AxeOS / NerdQaxe), read-only
     "miner_api_hosts": "",             # extra miner addresses to read (private IPv4[:port], space/comma separated)
+    "firmware_check_enabled": True,    # compare each miner's firmware with the latest GitHub release (read-only)
 }
 
 _ENV = {
@@ -62,7 +63,8 @@ _ENV = {
 _INT_KEYS = {"bchn_rpc_port", "stratum_port", "status_port", "share_difficulty",
              "vardiff_target_spm", "vardiff_min", "vardiff_max"}
 _BOOL_KEYS = {"vardiff_enabled", "notify_block", "notify_best_share",
-              "notify_miner_offline", "zmq_enabled", "miner_api_enabled"}
+              "notify_miner_offline", "zmq_enabled", "miner_api_enabled",
+              "firmware_check_enabled"}
 
 
 def config_path():
