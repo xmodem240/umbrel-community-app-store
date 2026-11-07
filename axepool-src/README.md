@@ -48,8 +48,13 @@ your odds; only hashrate does. Run this for sovereignty, learning and the ticket
 
 ## Development
 
-- Tests: `python3 -I server/test_pipeline.py` and `python3 server/test_metrics_store.py`
-  (standard library only).
+- Tests: `python3 -I server/test_pipeline.py`, `python3 server/test_metrics_store.py` and
+  `python3 server/test_miner_poller.py` (standard library only).
+- Miner monitoring: `server/miner_poller.py` reads each miner's own `GET /api/system/info`
+  (AxeOS and NerdQaxe firmware) every 10 seconds, read-only. Miners are found from their Stratum
+  connection; extra private LAN addresses can be listed in Settings. Results are at
+  `GET /devices` and in the `/series` points (`reported_ghs`, `power_w`, `chip_temp_c`,
+  `vr_temp_c`). Wi-Fi name, MAC address and pool passwords from the miner are never stored.
 - Metrics: `server/metrics_store.py` keeps `metrics.sqlite` in the data folder: 10-second
   samples for 24 hours, 1-minute rollups for 30 days, 1-hour rollups for a year. It writes once
   a minute in a single transaction. Read it at `GET /series?range=1h|6h|24h|7d|30d|1y` with

@@ -9,6 +9,7 @@ Runs on the asyncio loop (reads live state safely, no threads). Routes:
     GET  /history     persisted hashrate/share time-series (dashboard chart)
     GET  /series      10s/1m/1h metrics (?range=1h|6h|24h|7d|30d|1y&miner=&since=)
     GET  /series/miners  miner identities seen, with last-seen time
+    GET  /devices     miners' own API readings (AxeOS / NerdQaxe), read-only
     GET  /config      settings page
     GET  /config.json current settings (password redacted, env-locked keys listed)
     POST /config      save settings -> config.json (validated), applied live
@@ -33,6 +34,7 @@ import re
 import time
 
 import config
+from miner_poller import parse_target_list
 
 REQUEST_TIMEOUT = 10.0        # seconds to receive a full request
 MAX_HEADERS = 100
@@ -558,6 +560,14 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;ma
 </div>
 
 <div class="sec">
+<h2>Miner monitoring</h2>
+<label>Read miners' own API</label>
+<select id="miner_api_enabled"><option value="true">On — read hashrate, temps &amp; power from each miner</option><option value="false">Off</option></select>
+<label>Extra miner addresses <span class="note">(optional)</span></label><input id="miner_api_hosts" placeholder="192.168.1.20 192.168.1.21">
+<div class="note">Read-only: AxePool only ever reads <code>/api/system/info</code> and never changes a miner's settings. Miners connected to this pool are found automatically; list a miner here only if it is missing (for example behind another router). Private LAN addresses only, separated by spaces or commas.</div>
+</div>
+
+<div class="sec">
 <h2>Network</h2>
 <div class="row"><div><label>Stratum port <span class="note">(restart)</span></label><input id="stratum_port"></div>
 <div><label>Status port <span class="note">(restart)</span></label><input id="status_port"></div></div>
@@ -581,8 +591,8 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;ma
 <div id="msg"></div>
 </div>
 <script>
-const FIELDS=['bchn_rpc_host','bchn_rpc_port','bchn_rpc_user','stratum_port','status_port','share_difficulty','vardiff_enabled','vardiff_target_spm','vardiff_min','vardiff_max','webhook_url'];
-const BOOL_FIELDS=['vardiff_enabled'];
+const FIELDS=['bchn_rpc_host','bchn_rpc_port','bchn_rpc_user','stratum_port','status_port','share_difficulty','vardiff_enabled','vardiff_target_spm','vardiff_min','vardiff_max','webhook_url','miner_api_enabled','miner_api_hosts'];
+const BOOL_FIELDS=['vardiff_enabled','miner_api_enabled'];
 const CHECK_FIELDS=['notify_block','notify_best_share','notify_miner_offline'];
 const JSON_HDR={'content-type':'application/json'};
 async function postJSON(url,body){return (await fetch(url,{method:'POST',headers:JSON_HDR,body:JSON.stringify(body||{})})).json();}
@@ -625,7 +635,7 @@ async function save(){
  msg.innerHTML='Saving…';
  try{
   const r=await postJSON('/config',collect());
-  msg.innerHTML = r.ok ? '<span style="color:#3fb950">Saved. RPC, difficulty, vardiff &amp; webhook applied live; port changes need an app restart.</span>'
+  msg.innerHTML = r.ok ? '<span style="color:#3fb950">Saved. RPC, difficulty, vardiff, webhook &amp; miner monitoring applied live; port changes need an app restart.</span>'
                        : '<span style="color:#f85149">Error: '+(r.error||'unknown')+'</span>';
   return !!r.ok;
  }catch(e){msg.innerHTML='<span style="color:#f85149">Request failed: '+e+'</span>';return false;}
@@ -787,8 +797,17 @@ def validate_updates(updates, current):
         if len(url) > 2048 or any(c in url for c in " \r\n"):
             return "Webhook URL is not valid"
         updates["webhook_url"] = url
+    if "miner_api_hosts" in updates:
+        if not isinstance(updates["miner_api_hosts"], str):
+            return "miner_api_hosts must be a string"
+        try:
+            hosts = parse_target_list(updates["miner_api_hosts"])
+        except ValueError as e:
+            return f"Miner addresses: {e}"
+        updates["miner_api_hosts"] = " ".join(
+            ip if port == 80 else f"{ip}:{port}" for ip, port in hosts)
     for k in ("vardiff_enabled", "notify_block", "notify_best_share",
-              "notify_miner_offline", "zmq_enabled"):
+              "notify_miner_offline", "zmq_enabled", "miner_api_enabled"):
         v = updates.get(k)
         if v is None or isinstance(v, bool):
             continue
@@ -800,7 +819,8 @@ def validate_updates(updates, current):
 
 
 class StatusServer:
-    def __init__(self, server, jobs, host, port, history=None, diag=None, metrics=None):
+    def __init__(self, server, jobs, host, port, history=None, diag=None, metrics=None,
+                 poller=None):
         self.server = server
         self.jobs = jobs
         self.host = host
@@ -808,6 +828,7 @@ class StatusServer:
         self.history = history
         self.diag = diag
         self.metrics = metrics
+        self.poller = poller
         self._active = 0
 
     async def start(self):
@@ -891,6 +912,13 @@ class StatusServer:
             return _json("200 OK", {"points": pts})
         if path.startswith("/series"):
             return await self._series(path)
+        if path.startswith("/devices"):
+            if self.poller is None:
+                return _json("503 Service Unavailable",
+                             {"ok": False, "error": "miner polling unavailable"})
+            ids = [c.raw_user for c in self.server.clients
+                   if c.authorized and not c.internal and c.raw_user]
+            return _json("200 OK", self.poller.snapshot(ids))
         if path.startswith("/config.json"):
             out = config.redacted(config.load())
             out["env_locked"] = config.env_locked()
@@ -1046,9 +1074,9 @@ class StatusServer:
         for k in config.DEFAULTS:
             if k not in data or k == "hidden_cards":     # layout has its own route
                 continue
-            # blank means "leave unchanged" for every field except webhook_url,
-            # where an empty string is the valid way to disable notifications.
-            if data[k] == "" and k != "webhook_url":
+            # blank means "leave unchanged" for every field except webhook_url
+            # and miner_api_hosts, where an empty string clears the setting.
+            if data[k] == "" and k not in ("webhook_url", "miner_api_hosts"):
                 continue
             updates[k] = data[k]
         err = validate_updates(updates, config.load())
@@ -1058,6 +1086,9 @@ class StatusServer:
             config.save(updates)
             cfg = config.load()
             self.jobs.apply_config(cfg)
+            if self.poller is not None:
+                self.poller.enabled = cfg["miner_api_enabled"]
+                self.poller.set_manual(parse_target_list(cfg["miner_api_hosts"]))
         except Exception as e:
             return ("500 Internal Server Error", "application/json",
                     json.dumps({"ok": False, "error": str(e)}).encode())

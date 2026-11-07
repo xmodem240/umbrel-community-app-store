@@ -36,6 +36,8 @@ DEFAULTS = {
     "zmq_enabled": True,               # subscribe to BCHN ZMQ hashblock for instant jobs
     "zmq_block_endpoint": "tcp://bitcoind:28332",  # BCHN ZMQ hashblock endpoint
     "hidden_cards": [],                # dashboard card ids the user has hidden (UI pref)
+    "miner_api_enabled": True,         # read each miner's own API (AxeOS / NerdQaxe), read-only
+    "miner_api_hosts": "",             # extra miner addresses to read (private IPv4[:port], space/comma separated)
 }
 
 _ENV = {
@@ -60,7 +62,7 @@ _ENV = {
 _INT_KEYS = {"bchn_rpc_port", "stratum_port", "status_port", "share_difficulty",
              "vardiff_target_spm", "vardiff_min", "vardiff_max"}
 _BOOL_KEYS = {"vardiff_enabled", "notify_block", "notify_best_share",
-              "notify_miner_offline", "zmq_enabled"}
+              "notify_miner_offline", "zmq_enabled", "miner_api_enabled"}
 
 
 def config_path():

@@ -60,7 +60,7 @@ RANGES = {
 }
 
 COLUMNS = ("ts", "miner", "work", "hr_5m", "accepted", "rejected", "difficulty",
-           "workers")
+           "workers", "reported_ghs", "power_w", "chip_temp_c", "vr_temp_c")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS {t} (
@@ -72,6 +72,12 @@ CREATE TABLE IF NOT EXISTS {t} (
     rejected    INTEGER NOT NULL,
     difficulty  REAL,               -- share difficulty at the end of the bucket (NULL for pool)
     workers     INTEGER NOT NULL,   -- connected miners (pool row) / 1 (miner row); max in rollups
+    -- From the miner's own API (miner_poller.py); NULL when not polled.
+    -- Pool row: sums of hashrate/power over polled miners, hottest temperatures.
+    reported_ghs REAL,              -- miner-reported hashrate, GH/s; AVG in rollups
+    power_w      REAL,              -- watts; AVG in rollups
+    chip_temp_c  REAL,              -- hottest chip; MAX in rollups
+    vr_temp_c    REAL,              -- voltage regulator; MAX in rollups
     PRIMARY KEY (ts, miner)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS {t}_miner_ts ON {t} (miner, ts);
@@ -128,7 +134,7 @@ class MetricsStore:
         try:
             if rows:
                 db.executemany(
-                    "INSERT OR REPLACE INTO s10 VALUES (?,?,?,?,?,?,?,?)", rows)
+                    "INSERT OR REPLACE INTO s10 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
             self._rollup(db, "s10", "m1", now)
             self._rollup(db, "m1", "h1", now)
             if now - self._last_prune >= PRUNE_INTERVAL:
@@ -159,7 +165,8 @@ class MetricsStore:
                    (SELECT s2.difficulty FROM {src} s2
                      WHERE s2.miner = g.miner AND s2.ts >= g.b AND s2.ts < g.b + ?
                      ORDER BY s2.ts DESC LIMIT 1),
-                   MAX(workers)
+                   MAX(workers), AVG(reported_ghs), AVG(power_w),
+                   MAX(chip_temp_c), MAX(vr_temp_c)
             FROM (SELECT (ts / ?) * ? AS b, * FROM {src}
                   WHERE ts >= ? AND ts < ?) g
             GROUP BY b, miner
@@ -234,8 +241,9 @@ class MetricsStore:
     def series(self, range_name="1h", miner=POOL, since=None):
         """Points for a chart. Includes rows still in the write buffer for the
         10-second table, so a 5-10 s refresh sees the newest sample at once.
-        Returns dict(range, table, bucket, points=[[ts, hashrate, hr_5m,
-        accepted, rejected, difficulty, workers], ...])."""
+        Returns dict(range, table, bucket, fields, points); each point follows
+        `fields` (hashrate in H/s from pool work; reported_ghs in GH/s from the
+        miner's own API, NULL when it was not polled)."""
         if range_name not in RANGES:
             raise ValueError(f"range must be one of {', '.join(RANGES)}")
         span, table = RANGES[range_name]
@@ -254,10 +262,12 @@ class MetricsStore:
                 seen = {r[0] for r in rows}
                 rows = sorted(rows + [r for r in pending if r[0] not in seen])
         pts = [[r[0], round(bucket_hashrate(r[2], bucket), 2), round(r[3], 2),
-                r[4], r[5], r[6], r[7]] for r in rows]
+                r[4], r[5], r[6], r[7], _r(r[8]), _r(r[9]), _r(r[10]), _r(r[11])]
+               for r in rows]
         return {"range": range_name, "table": table, "bucket": bucket,
                 "fields": ["ts", "hashrate", "hr_5m", "accepted", "rejected",
-                           "difficulty", "workers"],
+                           "difficulty", "workers", "reported_ghs", "power_w",
+                           "chip_temp_c", "vr_temp_c"],
                 "points": pts}
 
     def miners(self, days=30):
@@ -289,4 +299,13 @@ def _row(ts, key, d):
     return (int(ts), key, float(d.get("work", 0.0)), float(d.get("hr_5m", 0.0)),
             int(d.get("accepted", 0)), int(d.get("rejected", 0)),
             (float(d["difficulty"]) if d.get("difficulty") is not None else None),
-            int(d.get("workers", 0)))
+            int(d.get("workers", 0)), _opt(d.get("reported_ghs")), _opt(d.get("power_w")),
+            _opt(d.get("chip_temp_c")), _opt(d.get("vr_temp_c")))
+
+
+def _opt(v):
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _r(v):
+    return round(v, 2) if v is not None else None

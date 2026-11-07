@@ -28,6 +28,7 @@ jobs:
       - run: python -m py_compile server/*.py
       - run: python -I server/test_pipeline.py
       - run: python server/test_metrics_store.py
+      - run: python server/test_miner_poller.py
   build:
     needs: test
     # Pull requests only run the tests; images are published from main.

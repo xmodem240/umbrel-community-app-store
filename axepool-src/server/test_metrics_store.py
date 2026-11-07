@@ -219,7 +219,7 @@ def test_write_failure():
     # Bound: a long outage cannot grow memory without limit.
     s._write = broken
     for i in range(80000):
-        s._buf.append((T0 + i, "", 0.0, 0.0, 0, 0, None, 0))
+        s._buf.append((T0 + i, "", 0.0, 0.0, 0, 0, None, 0, None, None, None, None))
     s.flush()
     check("buffer bounded during a long write outage",
           len(s._buf) <= int(3600 / ms.SAMPLE_INTERVAL) * 64)

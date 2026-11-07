@@ -31,6 +31,7 @@ from job_manager import (JobManager, EXTRANONCE1_SIZE, EXTRANONCE2_SIZE,
                          COINBASE_TAG, DIFF1_TARGET, target_from_difficulty)
 from history import History
 from metrics_store import MetricsStore, SAMPLE_INTERVAL as METRICS_TICK
+from miner_poller import MinerPoller, parse_target_list
 from stats import Stats, stats_path
 from status import StatusServer, human_hashrate
 from template import BlockTemplate
@@ -222,8 +223,12 @@ class StratumServer:
                     pass
 
 
-def collect_sample(clients, since_mono, last_rejected, now_mono=None):
+def collect_sample(clients, since_mono, last_rejected, now_mono=None, devices=None):
     """One metrics sample: (pool, {identity: miner}) dicts for MetricsStore.
+
+    `devices` (identity -> normalized record from MinerPoller.link) adds each
+    miner's own reported hashrate, power and temperatures; the pool row gets
+    their sums (hashrate, power) and the hottest temperatures.
 
     `since_mono` is the monotonic time of the previous sample; only shares
     accepted after it count, so consecutive samples never double-count work.
@@ -255,12 +260,32 @@ def collect_sample(clients, since_mono, last_rejected, now_mono=None):
         m["rejected"] += rej
         if c.difficulty is not None:
             m["difficulty"] = max(m["difficulty"] or 0, c.difficulty)
+    polled = []
+    for ident, m in miners.items():
+        d = (devices or {}).get(ident)
+        if not d:
+            continue
+        m["reported_ghs"] = d.get("hashrate_ghs")
+        m["power_w"] = d.get("power_w")
+        m["chip_temp_c"] = d.get("chip_temp_c")
+        m["vr_temp_c"] = d.get("vr_temp_c")
+        polled.append(m)
+
+    def total(k):
+        vals = [m[k] for m in polled if m.get(k) is not None]
+        return sum(vals) if vals else None
+
+    def hottest(k):
+        vals = [m[k] for m in polled if m.get(k) is not None]
+        return max(vals) if vals else None
     pool = {"work": sum(m["work"] for m in miners.values()),
             "hr_5m": sum(m["hr_5m"] for m in miners.values()),
             "accepted": sum(m["accepted"] for m in miners.values()),
             "rejected": sum(m["rejected"] for m in miners.values()),
             "difficulty": None,
-            "workers": len(miners)}
+            "workers": len(miners),
+            "reported_ghs": total("reported_ghs"), "power_w": total("power_w"),
+            "chip_temp_c": hottest("chip_temp_c"), "vr_temp_c": hottest("vr_temp_c")}
     return pool, miners
 
 
@@ -939,6 +964,12 @@ async def main():
             stats.update_block()
     history = History()
     metrics = MetricsStore()
+    try:
+        manual = parse_target_list(cfg["miner_api_hosts"])
+    except ValueError as e:
+        log.warning("ignoring saved miner addresses (%s)", e)
+        manual = []
+    poller = MinerPoller(enabled=cfg["miner_api_enabled"], manual=manual)
     jobs = JobManager(rpc, cfg["share_difficulty"], POLL_INTERVAL,
                       vardiff=vardiff, webhook_url=cfg["webhook_url"], stats=stats,
                       notify_block=cfg["notify_block"],
@@ -957,7 +988,7 @@ async def main():
 
     diag = Diagnostics(server, jobs, cfg["stratum_port"])
     status = StatusServer(server, jobs, STATUS_HOST, cfg["status_port"], history,
-                          diag=diag, metrics=metrics)
+                          diag=diag, metrics=metrics, poller=poller)
     await status.start()
     log.info("Status dashboard on http://<umbrel-ip>:%d/  (JSON at /status)",
              cfg["status_port"])
@@ -1001,14 +1032,27 @@ async def main():
             await asyncio.sleep(METRICS_TICK - (time.time() % METRICS_TICK) + 0.05)
             try:
                 now = time.monotonic()
-                pool, miners = collect_sample(list(server.clients), prev,
-                                              last_rejected, now)
+                clients = list(server.clients)
+                devices = poller.link(c.raw_user for c in clients if c.raw_user)
+                pool, miners = collect_sample(clients, prev, last_rejected, now,
+                                              devices=devices)
                 prev = now
                 metrics.add_sample(time.time(), pool, miners)
                 if metrics.due():
                     await metrics.aflush()
             except Exception as e:
                 log.debug("metrics sample error: %s", e)
+
+    async def poller_loop():
+        # Short tick; each miner is only read when it is due (10 s when healthy,
+        # backing off to 2 min when unreachable), so this is cheap.
+        while True:
+            await asyncio.sleep(2.0)
+            try:
+                poller.note_connections(list(server.clients))
+                await poller.poll_due()
+            except Exception as e:
+                log.debug("miner poller error: %s", e)
 
     # Flush lifetime stats on a clean shutdown (Umbrel sends SIGTERM with a 1m
     # grace period) so throttled counters land on disk instead of being lost.
@@ -1038,6 +1082,7 @@ async def main():
     asyncio.create_task(offline_loop())
     asyncio.create_task(history_loop())
     asyncio.create_task(metrics_loop())
+    asyncio.create_task(poller_loop())
     try:
         async with srv:
             serve_task = asyncio.create_task(srv.serve_forever())
@@ -1063,6 +1108,7 @@ async def main():
         stats.flush()
         history.flush()
         metrics.close()
+        poller.close()
 
 
 if __name__ == "__main__":
