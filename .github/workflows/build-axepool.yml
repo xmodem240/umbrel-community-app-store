@@ -34,7 +34,8 @@ jobs:
       - run: python server/test_ports.py
   build:
     needs: test
-    # Pull requests only run the tests; images are published from main.
+    # Pull requests only run the tests. Other branches (workflow_dispatch) build, smoke test
+    # and scan without publishing anything; only main publishes images.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -53,7 +54,34 @@ jobs:
           v="$(sed -nE 's/^version:[[:space:]]*"?([^"]+)"?[[:space:]]*$/\1/p' kyle-axepool/umbrel-app.yml)"
           test -n "$v"
           echo "version=$v" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      # Everything below is checked BEFORE anything is published.
+      - name: Build image for checks (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: axepool-src
+          platforms: linux/amd64
+          load: true
+          tags: axepool:check
+      # The test job uses the runner's Python; this proves the image itself: the stdlib
+      # modules the server needs, and every server module importing cleanly.
+      - name: Smoke test image
+        run: |
+          docker run --rm --entrypoint python3 axepool:check -c \
+            "import sqlite3, sys; sys.path.insert(0, '/app/server'); import stratum, status, metrics_store, miner_poller, cashaddr; print('ok sqlite', sqlite3.sqlite_version)"
+      # Block the release on any HIGH/CRITICAL vulnerability that has a fix available.
+      # Third-party action pinned to a commit (v0.36.0, 2026-04-22).
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: axepool:check
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      - name: Publish multi-arch image
+        id: push
+        if: github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
         with:
           context: axepool-src
           platforms: linux/amd64,linux/arm64
@@ -61,10 +89,10 @@ jobs:
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner }}/axepool:${{ steps.meta.outputs.version }}
             ghcr.io/${{ steps.meta.outputs.owner }}/axepool:latest
-      # Smoke test the published image itself (the test job uses the runner's Python):
-      # the stdlib modules the server needs, and every server module importing cleanly.
-      - name: Smoke test image
+      # The digest to pin in kyle-axepool/docker-compose.yml for this release.
+      - name: Record digest
+        if: github.ref == 'refs/heads/main'
         run: |
-          docker run --rm --entrypoint python3 \
-            ghcr.io/${{ steps.meta.outputs.owner }}/axepool:${{ steps.meta.outputs.version }} -c \
-            "import sqlite3, sys; sys.path.insert(0, '/app/server'); import stratum, status, metrics_store, miner_poller, cashaddr; print('ok sqlite', sqlite3.sqlite_version)"
+          line="image: ghcr.io/${{ steps.meta.outputs.owner }}/axepool:${{ steps.meta.outputs.version }}@${{ steps.push.outputs.digest }}"
+          echo "$line"
+          echo "Pin in kyle-axepool/docker-compose.yml: \`$line\`" >> "$GITHUB_STEP_SUMMARY"

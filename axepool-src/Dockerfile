@@ -1,6 +1,9 @@
 # AxePool - Stratum server container
 # Stdlib-only Python; no pip install needed -> tiny, fast, arm64-friendly (Pi 5).
-FROM python:3.13-slim
+# Pinned to an exact image (the one CI resolved python:3.13-slim to on 2026-11-07) so a
+# rebuild never silently changes the base. To pick up base-image security fixes, update
+# the digest; the weekly scan workflow flags when that is needed.
+FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc
 
 # Run as a non-root user for safety.
 RUN useradd -r -u 10001 -m app
