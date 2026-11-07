@@ -32,6 +32,7 @@ jobs:
       - run: python server/test_miner_poller.py
       - run: python server/test_vardiff_seed.py
       - run: python server/test_ports.py
+      - run: python server/test_diff_change.py
   build:
     needs: test
     # Pull requests only run the tests. Other branches (workflow_dispatch) build, smoke test

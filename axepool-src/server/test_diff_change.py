@@ -129,6 +129,17 @@ async def main():
     check(f"vardiff weighs shares by work: 40 diff-1 shares/min at diff 16 lowers, "
           f"not raises (16 -> {c2.difficulty})", c2.difficulty < 16)
 
+    # Memory: records for jobs the job manager has forgotten are dropped, so a
+    # pool running for months does not accumulate one entry per job forever.
+    for i in range(300):
+        jm._new_real(tp.make_gbt(950_001 + i, f"{i:064x}", 312_500_000), clean=True)
+        await c.send_current_job()
+        w.buf = b""
+    live = sum(1 for j in c.job_targets if jm.get_source(j) is not None)
+    check(f"job difficulty records stay bounded after 300 new blocks "
+          f"({len(c.job_targets)} kept, all for live jobs)",
+          len(c.job_targets) == live and len(c.job_targets) < 50)
+
     if server.submit_tasks:
         await asyncio.gather(*list(server.submit_tasks))
     print(f"\n{ok} passed, {fail} failed")

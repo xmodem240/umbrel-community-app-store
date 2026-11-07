@@ -352,6 +352,12 @@ class ClientConn:
         # whatever address the connection holds now, so a re-authorize with a
         # different address cannot change the coinbase of work already out.
         self.job_payouts = {}
+        # job_id -> (target, difficulty): the EASIEST difficulty this job was sent
+        # with. Firmware judges shares by the difficulty in force when the job
+        # arrived (AxeOS copies the pool target into each job) and may ignore a
+        # re-sent notify for the same job, so that difficulty stays valid for the
+        # job's whole life, not just a grace period after a change.
+        self.job_targets = {}
         self.connected_wall = time.time()
         self.connected_mono = time.monotonic()
         self.accepted = 0
@@ -505,7 +511,13 @@ class ClientConn:
         window = min(VARDIFF_WINDOW, now - max(self.connected_mono, self._diff_changed))
         if window < VARDIFF_MIN_WINDOW:
             return                            # too little data yet to judge
-        observed_spm = self.shares_in(window) / (window / 60.0)
+        # Shares weighted by their work, in units of the current difficulty: late
+        # shares from jobs sent before a raise count for what they are worth, not
+        # as full shares (which would push the difficulty too high). With every
+        # share at the current difficulty this equals the plain share count.
+        cutoff = now - window
+        work = sum(d for t, d in self._shares if t >= cutoff)
+        observed_spm = work / self.difficulty / (window / 60.0)
         target_spm = max(1, v.get("target_spm", 20))
         lo, hi = v.get("min", 128), v.get("max", 4000000)
         if observed_spm <= 0:
@@ -562,6 +574,16 @@ class ClientConn:
             payouts.append(pair)
             del payouts[:-MAX_PAYOUTS_PER_JOB]
 
+    def _remember_target(self, job_id):
+        """Record that `job_id` went out at the current share difficulty."""
+        if self.target is None:
+            return
+        for old in [j for j in self.job_targets if self.jobs.get_source(j) is None]:
+            del self.job_targets[old]
+        prev = self.job_targets.get(job_id)
+        if prev is None or self.target > prev[0]:
+            self.job_targets[job_id] = (self.target, self.difficulty)
+
     async def send_current_job(self):
         jm = self.jobs
         src = jm.current_source
@@ -577,6 +599,7 @@ class ClientConn:
             self._remember_payout(jid)
         else:
             params = src.notify_params(jid, jm.current_clean)
+        self._remember_target(jid)
         await self.send({"id": None, "method": "mining.notify", "params": params})
 
     async def run(self):
@@ -868,11 +891,17 @@ class ClientConn:
                 "ntime": ntime, "nonce": nonce, "version": f"{ver_int:08x}",
                 "hash_diff": share_diff, "share_diff": self.difficulty})
 
-        # A difficulty change reaches the miner while shares found at the old
-        # one are still in flight: honour the previous target briefly.
+        # A share counts at the difficulty its job was sent with: after a raise
+        # the miner keeps mining that job at the old difficulty until its next
+        # notify. Credited at that (lower) difficulty, so stats and vardiff see
+        # the real work. The short grace on the previous difficulty stays as a
+        # fallback for a job this connection has no record of.
         assigned = self.difficulty
         meets_share = hval <= self.target
-        if (not meets_share and self._prev_target is not None
+        jt = self.job_targets.get(job_id)
+        if not meets_share and jt is not None and hval <= jt[0]:
+            meets_share, assigned = True, jt[1]
+        elif (not meets_share and self._prev_target is not None
                 and time.monotonic() - self._diff_changed < DIFF_CHANGE_GRACE
                 and hval <= self._prev_target):
             meets_share, assigned = True, self._prev_difficulty
