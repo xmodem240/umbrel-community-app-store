@@ -283,6 +283,41 @@ td.empty::before{content:none}
 .copy{cursor:pointer;border-bottom:1px dotted #8b949e}.copy:hover{color:#e6edf3}
 .lnk{color:#58a6ff;text-decoration:none}.lnk:hover{text-decoration:underline}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#238636;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);z-index:60}
+/* live graphs + miner cards */
+#gWrap{transition:opacity .2s}#gWrap.loading .chart{opacity:.55}
+.rangebar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 12px}
+.rbtn{background:#21262d;border:1px solid #30363d;color:#adbac7;font:inherit;font-size:12px;padding:4px 11px;border-radius:6px;cursor:pointer}
+.rbtn:hover{color:#e6edf3;border-color:#58a6ff}.rbtn.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.live{margin-left:auto;color:#8b949e;font-size:12px}.live.bad{color:#f85149}
+.chart{position:relative;margin-top:6px}.chart svg{display:block;width:100%;outline:none}
+.chart svg:focus-visible{outline:2px solid #58a6ff;outline-offset:2px;border-radius:4px}
+.gempty{display:flex;align-items:center;justify-content:center;text-align:center;color:#8b949e;font-size:12px;padding:0 12px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:#adbac7;margin-top:6px}
+.legend b{color:#e6edf3;font-variant-numeric:tabular-nums}
+.lkey{display:inline-block;width:16px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
+.lkey.dash{border-top-style:dashed}
+.tip{position:absolute;pointer-events:none;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:6px 9px;font-size:12px;white-space:nowrap;z-index:5;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.tip .t{color:#8b949e;margin-bottom:2px}.tip .row{display:flex;align-items:center;gap:6px}
+.tip b{color:#e6edf3;font-variant-numeric:tabular-nums}
+.charts3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:12px;margin-bottom:16px}
+.charts3 .panel{margin-bottom:0}
+details.tbl summary{cursor:pointer;color:#58a6ff;font-size:12px;margin-top:8px}
+details.tbl table{margin-top:8px}
+.mhead{margin:8px 0 10px;font-size:15px}
+.mcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:12px;margin-bottom:20px;align-items:start}
+.mcard{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 14px}
+.mh{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.mh[role=button]{cursor:pointer}.mh:focus-visible{outline:2px solid #58a6ff;outline-offset:3px;border-radius:4px}
+.mn{font-weight:700;font-size:15px;word-break:break-word}.mm{color:#8b949e;font-size:12px;word-break:break-word}
+.mhr{display:flex;align-items:center;gap:8px;flex:none}.badge{font-size:12px;white-space:nowrap}.chev{color:#8b949e;font-size:12px}
+.mgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;margin-top:10px}
+.mcard .mh[role=button]~.mgrid{cursor:pointer}
+.mgrid .k{color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.mgrid .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mgrid .v small{color:#8b949e;font-weight:600;font-size:11px}
+.mnote{color:#8b949e;font-size:12px;margin-top:8px}
+.mcharts{margin-top:12px;border-top:1px solid #21262d;padding-top:10px}
+.mcharts .sub{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:8px}
 </style></head><body>
 <header><h1>Axe<span>Pool</span></h1>
 <div class="hbtns"><a class="btn" href="/config">&#9881; Settings</a></div></header>
@@ -292,9 +327,22 @@ td.empty::before{content:none}
 <div class="groups"><div class="group" id="grpA"></div><div class="group" id="grpB"></div></div>
 <div class="stats" id="odds"></div>
 <div class="stats" id="lifetime"></div>
-<div class="panel" id="sparkPanel" hidden><div class="k"><span>Hashrate <span class="dim">(live, this session)</span></span><span id="sparkNow"></span></div><svg id="spark" viewBox="0 0 300 48" preserveAspectRatio="none"></svg></div>
-<div class="panel" id="histPanel" hidden><div class="k"><span>Hashrate history <span class="dim" id="histSpan"></span></span><span id="histMax"></span></div><svg id="histChart" viewBox="0 0 600 120" preserveAspectRatio="none" style="height:120px"></svg></div>
 <div class="cards" id="cards"></div>
+<div id="gWrap">
+<div class="rangebar" role="group" aria-label="Graph time range">
+<button class="rbtn" data-r="1h">1h</button><button class="rbtn" data-r="6h">6h</button><button class="rbtn" data-r="24h">24h</button><button class="rbtn" data-r="7d">7d</button><button class="rbtn" data-r="30d">30d</button><button class="rbtn" data-r="1y">1y</button>
+<span class="live" id="gLive" aria-live="polite">Loading graphs…</span></div>
+<div class="panel"><div class="k"><span>Pool hashrate <span class="dim">(5-min avg)</span></span><span id="hashNow"></span></div>
+<div class="legend" id="lgHash" hidden></div><div class="chart" id="chHash"></div>
+<details class="tbl" id="hashTbl"><summary>Show as table</summary><div id="hashTblBody"></div></details></div>
+<div class="charts3">
+<div class="panel"><div class="k"><span>Miners connected</span><span id="wNow"></span></div><div class="chart" id="chWorkers"></div></div>
+<div class="panel"><div class="k"><span>Power <span class="dim">(polled miners)</span></span><span id="pNow"></span></div><div class="chart" id="chPower"></div></div>
+<div class="panel"><div class="k"><span>Hottest chip</span><span id="tNow"></span></div><div class="chart" id="chTemp"></div></div>
+</div>
+<h3 class="mhead" id="mHead" hidden>Miners <span class="dim" style="font-size:12px;font-weight:400">· tap a miner for its graphs</span></h3>
+<div class="mcards" id="mcards"></div>
+</div>
 <table><thead><tr><th>Miner</th><th>IP</th><th>Model</th><th>Payout (BCH)</th><th>Hashrate</th>
 <th>Diff</th><th>Best diff</th><th>Blocks</th><th>Accepted</th><th>Rejected</th><th>Last share</th></tr></thead>
 <tbody id="miners"></tbody></table>
@@ -338,39 +386,276 @@ function cp(t){
 }
 function humanTime(s){if(!isFinite(s)||s<=0)return '—';const y=s/31557600;if(y>=1)return y>=1000?(y/1000).toFixed(1)+' <small>k yr</small>':y.toFixed(y>=10?0:1)+' <small>yr</small>';const d=s/86400;if(d>=1)return d.toFixed(d>=10?0:1)+' <small>d</small>';const h=s/3600;if(h>=1)return h.toFixed(1)+' <small>h</small>';return Math.max(1,Math.round(s/60))+' <small>min</small>';}
 function humanSpan(s){s=Math.round(s);const d=Math.floor(s/86400);const h=Math.floor(s%86400/3600);const m=Math.floor(s%3600/60);if(d)return d+'d '+h+'h';if(h)return h+'h '+m+'m';return m+'m';}
-async function drawHistory(){
+// ===== Live graphs (/series) and miner cards (/status + /devices) =====
+// Colours validated with the dataviz palette checker on the #161b22 panel:
+// lightness band, CVD separation and contrast all pass. The reported series is
+// also dashed, so identity never rests on colour alone.
+const C_POOL='#2ea043',C_REP='#388bfd';
+const RANGES=['1h','6h','24h','7d','30d','1y'];
+const SPAN={'1h':3600,'6h':21600,'24h':86400,'7d':604800,'30d':2592000,'1y':31536000};
+let gRange='1h';
+try{const r=localStorage.getItem('axepool.range');if(RANGES.indexOf(r)>=0)gRange=r;}catch(e){}
+const gSeries={};           // miner key ('' = pool) -> {range,bucket,ix,points,fetched}
+let gDevices=null,gStatus=null,gOpen=null,gBusy=false,gPending=false;
+const mEls={};              // card key -> element (kept, so open graphs survive refreshes)
+
+function hrTxt(h,ax){if(h==null||!isFinite(h))return '—';if(h<=0)return ax?'0':'0 H/s';const u=['H','KH','MH','GH','TH','PH','EH'];let i=0;while(h>=1000&&i<u.length-1){h/=1000;i++;}return (ax?+h.toFixed(h>=10?0:1):h.toFixed(2))+' '+u[i]+'/s';}
+function wTxt(v,ax){return v==null?'—':(ax?v.toFixed(0):v.toFixed(1))+' W';}
+function cTxt(v,ax){return v==null?'—':(ax?v.toFixed(0)+'°':v.toFixed(1)+' °C');}
+function nTxt(v){return v==null?'—':String(Math.round(v));}
+function tLabel(t,span){const d=new Date(t*1000);return span<=86400?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString([],{month:'short',day:'numeric'});}
+function tFull(t,span){const d=new Date(t*1000);
+ if(span<=3600)return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+ if(span<=86400)return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+ return d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
+function niceMax(v){if(!(v>0))return 1;const e=Math.pow(10,Math.floor(Math.log10(v)));const f=v/e;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*e;}
+function lastVal(pts){for(let i=pts.length-1;i>=0;i--){if(pts[i][1]!=null)return pts[i][1];}return null;}
+
+async function loadSeries(key){
+ const rg=gRange,span=SPAN[rg],now=Date.now()/1000;
+ let s=gSeries[key];
+ const fresh=!s||s.range!==rg;
+ // The 1-minute and 1-hour tables change at most once a minute.
+ if(!fresh&&rg!=='1h'&&now-s.fetched<60)return s;
+ const inc=!fresh&&rg==='1h'&&s.points.length>0;
+ let url='/series?range='+rg+'&miner='+encodeURIComponent(key);
+ if(inc)url+='&since='+s.points[s.points.length-1][0];
+ const r=await (await fetch(url)).json();
+ if(!r||!Array.isArray(r.points))throw new Error((r&&r.error)||'series fetch failed');
+ if(rg!==gRange)return null;                 // range changed while this was in flight
+ if(inc){s.points=s.points.concat(r.points);}
+ else{const ix={};r.fields.forEach((f,i)=>{ix[f]=i;});s={range:rg,bucket:r.bucket,ix:ix,points:r.points};gSeries[key]=s;}
+ s.fetched=now;
+ const cut=now-span;let k=0;while(k<s.points.length&&s.points[k][0]<cut)k++;
+ if(k)s.points=s.points.slice(k);
+ return s;
+}
+function col(s,f,scale){const i=s.ix[f];return s.points.map(p=>[p[0],p[i]==null?null:p[i]*(scale||1)]);}
+
+function drawChart(box,cfg){
+ const W=Math.max(220,Math.round(box.clientWidth||300)),H=cfg.h,L=50,R=10,T=10,B=20;
+ const now=Date.now()/1000,t0=now-cfg.span,t1=now;
+ let mx=0,n=0;cfg.series.forEach(s=>s.pts.forEach(p=>{if(p[1]!=null){n++;if(p[1]>mx)mx=p[1];}}));
+ if(!n){box.innerHTML='<div class="gempty" style="height:'+H+'px">'+esc(cfg.empty)+'</div>';return;}
+ let top,ticks=4;
+ if(cfg.int){top=Math.max(2,Math.ceil(mx*1.1));ticks=top<=4?top:4;top=Math.ceil(top/ticks)*ticks;}
+ else{top=niceMax(mx*1.08);}
+ const X=t=>L+(t-t0)/(t1-t0)*(W-L-R),Y=v=>T+(1-v/top)*(H-T-B);
+ let g='';
+ for(let i=0;i<=ticks;i++){const v=top*i/ticks,y=Y(v).toFixed(1);
+  g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'" stroke="#21262d"/>'
+   +'<text x="'+(L-6)+'" y="'+(+y+3.5)+'" text-anchor="end" fill="#8b949e" font-size="10">'+esc(cfg.fmt(v,true))+'</text>';}
+ const nx=W<420?3:5;
+ for(let i=0;i<nx;i++){const t=t0+(t1-t0)*i/(nx-1),x=X(t).toFixed(1);
+  g+='<text x="'+x+'" y="'+(H-5)+'" text-anchor="'+(i===0?'start':i===nx-1?'end':'middle')+'" fill="#8b949e" font-size="10">'+esc(tLabel(t,cfg.span))+'</text>';}
+ const gap=cfg.bucket*2.5;     // a longer silence (pool or miner down) breaks the line
+ cfg.series.forEach(s=>{
+  let d='',dots='',prev=null;const P=s.pts;
+  for(let i=0;i<P.length;i++){const p=P[i];if(p[1]==null){prev=null;continue;}
+   const x=X(p[0]).toFixed(1),y=Y(p[1]).toFixed(1),brk=!prev||p[0]-prev[0]>gap;
+   if(brk){const q=P[i+1];if(!q||q[1]==null||q[0]-p[0]>gap)dots+='<circle cx="'+x+'" cy="'+y+'" r="2" fill="'+s.color+'"/>';}
+   d+=(brk?'M':'L')+x+' '+y+' ';prev=p;}
+  if(d)g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"'+(s.dash?' stroke-dasharray="5 4"':'')+'/>';
+  g+=dots;});
+ g+='<g class="hov" visibility="hidden"><line class="hair" y1="'+T+'" y2="'+(H-B)+'" stroke="#8b949e"/>'
+  +cfg.series.map((s,i)=>'<circle class="hd" data-i="'+i+'" r="4" fill="'+s.color+'" stroke="#161b22" stroke-width="2"/>').join('')+'</g>';
+ box.innerHTML='<svg tabindex="0" role="img" aria-label="'+esc(cfg.label)+'. Hover, or focus and use the arrow keys, for values." width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="height:'+H+'px;touch-action:pan-y">'+g+'</svg><div class="tip" hidden></div>';
+ const svg=box.querySelector('svg'),tip=box.querySelector('.tip'),hov=svg.querySelector('.hov');
+ const seen={};cfg.series.forEach(s=>s.pts.forEach(p=>{if(p[1]!=null)seen[p[0]]=1;}));
+ const ts=Object.keys(seen).map(Number).sort((a,b)=>a-b);
+ const show=t=>{
+  if(t==null){hov.setAttribute('visibility','hidden');tip.hidden=true;return;}
+  box._hoverT=t;const x=X(t);hov.setAttribute('visibility','visible');
+  const hair=hov.querySelector('.hair');hair.setAttribute('x1',x);hair.setAttribute('x2',x);
+  tip.textContent='';const hd=document.createElement('div');hd.className='t';hd.textContent=tFull(t,cfg.span);tip.appendChild(hd);
+  cfg.series.forEach((s,i)=>{
+   const p=s.pts.find(q=>q[0]===t),v=p?p[1]:null,c=hov.querySelector('.hd[data-i="'+i+'"]');
+   if(v==null)c.setAttribute('visibility','hidden');else{c.setAttribute('visibility','visible');c.setAttribute('cx',x);c.setAttribute('cy',Y(v));}
+   const row=document.createElement('div');row.className='row';
+   const k=document.createElement('span');k.className='lkey'+(s.dash?' dash':'');k.style.borderTopColor=s.color;
+   const b=document.createElement('b');b.textContent=cfg.fmt(v);
+   const nm=document.createElement('span');nm.className='dim';nm.textContent=s.name;
+   row.appendChild(k);row.appendChild(b);row.appendChild(nm);tip.appendChild(row);});
+  tip.hidden=false;const tw=tip.offsetWidth;let left=x+12;if(left+tw>W)left=x-12-tw;if(left<0)left=0;
+  tip.style.left=left+'px';tip.style.top=T+'px';};
+ const nearest=px=>{if(!ts.length)return null;const t=t0+(px-L)/(W-L-R)*(t1-t0);let lo=0,hi=ts.length-1;
+  while(hi-lo>1){const m=(lo+hi)>>1;if(ts[m]<t)lo=m;else hi=m;}
+  return Math.abs(ts[lo]-t)<=Math.abs(ts[hi]-t)?ts[lo]:ts[hi];};
+ const at=e=>{const r=svg.getBoundingClientRect();show(nearest((e.clientX-r.left)*W/r.width));};
+ svg.addEventListener('pointermove',at);svg.addEventListener('pointerdown',at);
+ svg.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse'){box._hoverT=null;show(null);}});
+ svg.addEventListener('focus',()=>show(box._hoverT!=null&&seen[box._hoverT]?box._hoverT:ts[ts.length-1]));
+ svg.addEventListener('blur',()=>{box._hoverT=null;show(null);});
+ svg.addEventListener('keydown',e=>{if(!ts.length)return;let i=ts.indexOf(box._hoverT);if(i<0)i=ts.length-1;
+  if(e.key==='ArrowLeft')i=Math.max(0,i-1);else if(e.key==='ArrowRight')i=Math.min(ts.length-1,i+1);
+  else if(e.key==='Escape'){svg.blur();return;}else return;e.preventDefault();show(ts[i]);});
+ if(box._hoverT!=null&&seen[box._hoverT])show(box._hoverT);
+}
+
+function legend(el,series){
+ el.textContent='';if(series.length<2){el.hidden=true;return;}el.hidden=false;
+ series.forEach(s=>{const it=document.createElement('span');
+  const k=document.createElement('span');k.className='lkey'+(s.dash?' dash':'');k.style.borderTopColor=s.color;
+  const nm=document.createElement('span');nm.textContent=s.name+' ';
+  const v=document.createElement('b');v.textContent=s.now;
+  it.appendChild(k);it.appendChild(nm);it.appendChild(v);el.appendChild(it);});
+}
+function setNow(id,txt){const el=document.getElementById(id);if(el)el.textContent=txt;}
+
+function hashSeries(s){
+ const pool=col(s,'hr_5m'),rep=col(s,'reported_ghs',1e9);
+ const out=[{name:'Pool-measured',color:C_POOL,pts:pool,now:hrTxt(lastVal(pool))}];
+ if(rep.some(p=>p[1]!=null))out.push({name:'Miner-reported',color:C_REP,dash:true,pts:rep,now:hrTxt(lastVal(rep))});
+ return out;
+}
+
+function renderPool(){
+ const s=gSeries[''];if(!s||s.range!==gRange)return;
+ const span=SPAN[s.range],hs=hashSeries(s);
+ legend(document.getElementById('lgHash'),hs);setNow('hashNow',hs[0].now);
+ drawChart(document.getElementById('chHash'),{series:hs,fmt:hrTxt,h:190,bucket:s.bucket,span:span,label:'Pool hashrate',
+  empty:'Collecting data. The first points appear within about 10 seconds of a miner connecting.'});
+ const w=col(s,'workers'),pw=col(s,'power_w'),tc=col(s,'chip_temp_c');
+ setNow('wNow',nTxt(lastVal(w)));setNow('pNow',wTxt(lastVal(pw)));setNow('tNow',cTxt(lastVal(tc)));
+ drawChart(document.getElementById('chWorkers'),{series:[{name:'Miners',color:C_POOL,pts:w}],fmt:nTxt,int:true,h:120,bucket:s.bucket,span:span,label:'Miners connected',empty:'No data yet'});
+ const noApi='Needs miner monitoring: miners whose API AxePool can read (Settings).';
+ drawChart(document.getElementById('chPower'),{series:[{name:'Power',color:C_POOL,pts:pw}],fmt:wTxt,h:120,bucket:s.bucket,span:span,label:'Total power',empty:noApi});
+ drawChart(document.getElementById('chTemp'),{series:[{name:'Hottest chip',color:C_POOL,pts:tc}],fmt:cTxt,h:120,bucket:s.bucket,span:span,label:'Hottest chip temperature',empty:noApi});
+ if(document.getElementById('hashTbl').open)renderTable(s);
+}
+
+function renderTable(s){
+ const rows=s.points.slice(-30).reverse(),ix=s.ix,span=SPAN[s.range];
+ const v=(p,f,sc)=>p[ix[f]]==null?null:p[ix[f]]*(sc||1);
+ document.getElementById('hashTblBody').innerHTML=rows.length?('<table><thead><tr><th>Time</th><th>Pool-measured</th><th>Miner-reported</th><th>Miners</th><th>Power</th><th>Hottest chip</th></tr></thead><tbody>'
+  +rows.map(p=>'<tr><td data-label="Time">'+esc(tFull(p[0],span))+'</td><td data-label="Pool-measured">'+esc(hrTxt(v(p,'hr_5m')))
+   +'</td><td data-label="Miner-reported">'+esc(hrTxt(v(p,'reported_ghs',1e9)))+'</td><td data-label="Miners">'+esc(nTxt(v(p,'workers')))
+   +'</td><td data-label="Power">'+esc(wTxt(v(p,'power_w')))+'</td><td data-label="Hottest chip">'+esc(cTxt(v(p,'chip_temp_c')))+'</td></tr>').join('')
+  +'</tbody></table><p class="dim" style="font-size:12px">Newest 30 points of this range.</p>'):'<p class="dim">No data yet.</p>';
+}
+
+// ---- miner cards ----
+const STATE={mining:['ok','● Mining'],idle:['warn','○ Idle'],stopped:['warn','■ Stopped'],paused:['warn','‖ Paused'],
+ overheat:['bad','▲ Overheating'],offline:['bad','✕ API unreachable'],pending:['dim','… Checking API']};
+function badge(st){const v=STATE[st]||['dim',st];return '<span class="badge '+v[0]+'">'+esc(v[1])+'</span>';}
+function mc(k,v){return '<div><div class="k">'+k+'</div><div class="v">'+v+'</div></div>';}
+function devFor(id){return gDevices?(gDevices.miners||[]).find(d=>d.linked_identity===id)||null:null;}
+
+function cardHtml(m,d){
+ const dm=d&&d.miner?d.miner:null;
+ const fw=dm?(dm.firmware==='nerdqaxe'?'NerdQaxe':'AxeOS')+(dm.version?' '+dm.version:''):null;
+ const model=(dm&&dm.model)||(m&&m.model)||null;
+ const name=m?m.worker:((dm&&dm.hostname)||(d&&d.address)||'miner');
+ const meta=[model,fw,m?m.ip:(d?d.address:null)].filter(Boolean).map(esc).join(' · ');
+ const st=d?badge(d.status):(m?'<span class="badge ok">● Connected</span>':'');
+ const rep=dm&&dm.hashrate_ghs!=null?dm.hashrate_ghs*1e9:null;
+ const exp=dm&&dm.expected_ghs?dm.expected_ghs*1e9:null;
+ const eff=(dm&&dm.power_w!=null&&dm.hashrate_ghs>0)?dm.power_w/(dm.hashrate_ghs/1000):null;
+ const rejPct=m&&(m.accepted+m.rejected)>0?m.rejected/(m.accepted+m.rejected)*100:null;
+ const T=(v,u,dp)=>v==null?'—':v.toFixed(dp)+' <small>'+u+'</small>';
+ let cells=
+   mc('Pool (5 min)',m?humanHR(m.hashrate_hps):'—')
+  +mc('Reported',rep!=null?humanHR(rep):'—')
+  +mc('Expected',exp!=null?(dm.expected_derived?'≈ ':'')+humanHR(exp):'—')
+  +mc('Chip',T(dm&&dm.chip_temp_c,'°C',1))
+  +mc('VR',T(dm&&dm.vr_temp_c,'°C',1))
+  +mc('Power',T(dm&&dm.power_w,'W',1))
+  +mc('Efficiency',T(eff,'J/TH',1))
+  +mc('Difficulty',m&&m.difficulty!=null?humanNum(m.difficulty):'—')
+  +mc('Shares/min',m&&m.shares_per_min!=null?m.shares_per_min.toFixed(1):'—')
+  +mc('Rejects',rejPct==null?'—':rejPct.toFixed(rejPct<1?2:1)+' <small>%</small>')
+  +mc('Best',m?humanNum(m.best_diff):(dm?humanNum(dm.best_diff):'—'))
+  +mc('Last share',m?ago(m.last_share_ago):'—');
+ let note='';
+ if(!m)note='Not mining to AxePool'+(dm&&dm.on_fallback_pool?' (on its fallback pool)':'')+'. Shown because its address is listed in Settings.';
+ else if(!d)note=gDevices&&gDevices.enabled===false?'Miner monitoring is off (Settings), so only pool figures are shown.'
+  :'Miner API not reached yet. If this lasts, add the miner’s address under Settings → Miner monitoring.';
+ else if(d.status==='offline')note='Miner API unreachable: '+(d.last_error||'no answer')+'. Pool figures are still live.';
+ else if(dm&&dm.on_fallback_pool)note='The miner reports it is on its fallback pool.';
+ return {head:'<div><div class="mn">'+esc(name)+'</div><div class="mm">'+meta+'</div></div><div class="mhr">'+st
+   +(m?'<span class="chev" aria-hidden="true">'+(gOpen===m.identity?'▴':'▾')+'</span>':'')+'</div>',cells:cells,note:note};
+}
+
+function ensureCard(key,openable){
+ let el=mEls[key];if(el)return el;
+ el=document.createElement('div');el.className='mcard';
+ el.innerHTML='<div class="mh"></div><div class="mgrid"></div><div class="mnote" hidden></div>'
+  +'<div class="mcharts" hidden><div class="sub">Hashrate <span class="dim">(this miner)</span></div><div class="legend"></div><div class="chart"></div>'
+  +'<div class="sub">Hottest chip</div><div class="chart"></div></div>';
+ if(openable){const h=el.querySelector('.mh');h.setAttribute('role','button');h.tabIndex=0;
+  const go=()=>toggleMiner(key);h.addEventListener('click',go);el.querySelector('.mgrid').addEventListener('click',go);
+  h.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});}
+ mEls[key]=el;return el;
+}
+
+function renderCards(){
+ const box=document.getElementById('mcards');if(!box)return;
+ const miners=((gStatus&&gStatus.miners)||[]).filter(m=>m.authorized&&m.identity).sort((a,b)=>String(a.worker).localeCompare(String(b.worker)));
+ const ids=new Set(miners.map(m=>m.identity));
+ const extra=gDevices?(gDevices.miners||[]).filter(d=>!d.linked_identity||!ids.has(d.linked_identity)).filter(d=>d.source==='manual'||d.miner):[];
+ const want=[];
+ miners.forEach(m=>{const el=ensureCard(m.identity,true),c=cardHtml(m,devFor(m.identity));want.push([m.identity,el,c]);});
+ extra.forEach(d=>{const k='dev:'+d.address,el=ensureCard(k,false),c=cardHtml(null,d);want.push([k,el,c]);});
+ const keep=new Set(want.map(w=>w[0]));
+ Object.keys(mEls).forEach(k=>{if(!keep.has(k)){mEls[k].remove();delete mEls[k];if(gOpen===k)gOpen=null;}});
+ want.forEach(([k,el,c])=>{
+  el.querySelector('.mh').innerHTML=c.head;el.querySelector('.mh').setAttribute('aria-expanded',gOpen===k?'true':'false');
+  el.querySelector('.mgrid').innerHTML=c.cells;
+  const n=el.querySelector('.mnote');n.hidden=!c.note;n.textContent=c.note;
+  el.querySelector('.mcharts').hidden=gOpen!==k;box.appendChild(el);});
+ document.getElementById('mHead').hidden=!want.length;
+}
+
+function renderOpen(){
+ if(!gOpen||!mEls[gOpen])return;const s=gSeries[gOpen];if(!s||s.range!==gRange)return;
+ const el=mEls[gOpen],charts=el.querySelectorAll('.mcharts .chart'),hs=hashSeries(s);
+ legend(el.querySelector('.mcharts .legend'),hs);
+ drawChart(charts[0],{series:hs,fmt:hrTxt,h:150,bucket:s.bucket,span:SPAN[s.range],label:'Miner hashrate',empty:'No data for this miner in this range yet.'});
+ drawChart(charts[1],{series:[{name:'Hottest chip',color:C_POOL,pts:col(s,'chip_temp_c')}],fmt:cTxt,h:110,bucket:s.bucket,span:SPAN[s.range],label:'Miner chip temperature',
+  empty:'Needs the miner’s API (Settings → Miner monitoring).'});
+}
+
+function toggleMiner(key){
+ gOpen=gOpen===key?null:key;renderCards();
+ if(gOpen){const s=gSeries[gOpen];if(s&&s.range===gRange)renderOpen();
+  loadSeries(gOpen).then(()=>renderOpen()).catch(()=>{});}
+}
+
+async function gRefresh(force){
+ if(document.hidden&&!force)return;
+ if(gBusy){gPending=true;return;}
+ gBusy=true;const live=document.getElementById('gLive');
  try{
-  const r=await (await fetch('/history')).json();
-  const pts=(r.points||[]).filter(p=>Array.isArray(p)&&p.length>=2);
-  const panel=document.getElementById('histPanel');
-  if(pts.length<2){panel.hidden=true;return;}
-  panel.hidden=false;
-  const hrs=pts.map(p=>p[1]);
-  const mx=Math.max(...hrs)||1,W=600,H=120,pad=6;
-  const X=i=>i/(pts.length-1)*W;
-  const Y=h=>H-pad-(h/mx)*(H-2*pad);
-  const line=pts.map((p,i)=>X(i).toFixed(1)+','+Y(p[1]).toFixed(1)).join(' ');
-  document.getElementById('histChart').innerHTML=
-    '<polygon fill="rgba(63,185,80,.12)" points="0,'+H+' '+line+' '+W+','+H+'"/>'+
-    '<polyline fill="none" stroke="#3fb950" stroke-width="2" points="'+line+'"/>';
-  document.getElementById('histMax').innerHTML='peak '+humanHR(mx);
-  document.getElementById('histSpan').textContent=humanSpan(pts[pts.length-1][0]-pts[0][0]);
- }catch(e){}
+  try{const dv=await (await fetch('/devices')).json();if(dv&&Array.isArray(dv.miners))gDevices=dv;}catch(e){}
+  await loadSeries('');
+  if(gOpen)await loadSeries(gOpen);
+  renderPool();renderOpen();renderCards();
+  live.textContent=gRange==='1h'?'● Live · every 10 s':'Updates every minute';live.className='live';
+ }catch(e){live.textContent='Graph update failed: '+e.message;live.className='live bad';}
+ finally{gBusy=false;document.getElementById('gWrap').classList.remove('loading');
+  if(gPending){gPending=false;gRefresh(true);}}
 }
-const hrHist=[];
-function drawSpark(v){
- hrHist.push(v);if(hrHist.length>150)hrHist.shift();
- const panel=document.getElementById('sparkPanel');
- if(hrHist.length<2){panel.hidden=true;return;}
- panel.hidden=false;
- const mx=Math.max(...hrHist)||1,W=300,H=48,pad=3;
- const pts=hrHist.map((h,i)=>{const x=i/(hrHist.length-1)*W;const y=H-pad-(h/mx)*(H-2*pad);return x.toFixed(1)+','+y.toFixed(1);}).join(' ');
- document.getElementById('spark').innerHTML='<polyline fill="none" stroke="#3fb950" stroke-width="2" points="'+pts+'"/>';
- document.getElementById('sparkNow').innerHTML=humanHR(hrHist[hrHist.length-1]);
+
+function setRange(r){
+ if(RANGES.indexOf(r)<0||r===gRange)return;gRange=r;
+ try{localStorage.setItem('axepool.range',r);}catch(e){}
+ document.querySelectorAll('.rbtn').forEach(b=>{const on=b.dataset.r===r;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false');});
+ document.getElementById('gWrap').classList.add('loading');gRefresh(true);
 }
+
+function gInit(){
+ document.querySelectorAll('.rbtn').forEach(b=>{const on=b.dataset.r===gRange;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false');
+  b.addEventListener('click',()=>setRange(b.dataset.r));});
+ document.getElementById('hashTbl').addEventListener('toggle',()=>{const s=gSeries[''];if(s&&document.getElementById('hashTbl').open)renderTable(s);});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)gRefresh(true);});
+ let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{renderPool();renderOpen();},150);});
+ gRefresh(true);setInterval(gRefresh,10000);
+}
+
 async function tick(){
  try{
   const s=await (await fetch('/status')).json();
+  gStatus=s;renderCards();
   const n=s.node, nodeCls=n.node_reachable?(n.node_ready?'ok':'warn'):'bad';
   const nodeTxt=n.node_reachable?(n.node_ready?'Synced':'Syncing '+((n.progress||0)*100).toFixed(2)+'%'):'Unreachable';
   const p=s.pool||{};
@@ -403,7 +688,6 @@ async function tick(){
     stat('total_hashes','Total hashes'+allTime,humanHashes(p.total_hashes||0),true)
    +stat('lifetime_avg','Lifetime avg'+allTime,humanHR(p.lifetime_avg_hps||0))
    +stat('mining_time','Mining time'+allTime,humanTime(p.mining_seconds||0));
-  drawSpark(p.hashrate_1m||0);
   let c='';
   c+=card('node','Node', nodeTxt, nodeCls);
   c+=card('mining','Mining', n.mode==='real'?'● Live':'○ Mock', n.mode==='real'?'ok':'warn');
@@ -452,7 +736,7 @@ async function tick(){
   document.getElementById('foot').textContent=foot;
  }catch(e){document.getElementById('foot').textContent='status fetch failed: '+e;}
 }
-loadPrefs().then(()=>{tick();drawHistory();setInterval(tick,2000);setInterval(drawHistory,60000);});
+loadPrefs().then(()=>{tick();gInit();setInterval(tick,2000);});
 </script></body></html>"""
 
 
