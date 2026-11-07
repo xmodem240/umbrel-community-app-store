@@ -60,3 +60,10 @@ jobs:
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner }}/axepool:${{ steps.meta.outputs.version }}
             ghcr.io/${{ steps.meta.outputs.owner }}/axepool:latest
+      # Smoke test the published image itself (the test job uses the runner's Python):
+      # the stdlib modules the server needs, and every server module importing cleanly.
+      - name: Smoke test image
+        run: |
+          docker run --rm --entrypoint python3 \
+            ghcr.io/${{ steps.meta.outputs.owner }}/axepool:${{ steps.meta.outputs.version }} -c \
+            "import sqlite3, sys; sys.path.insert(0, '/app/server'); import stratum, status, metrics_store, miner_poller, cashaddr; print('ok sqlite', sqlite3.sqlite_version)"
