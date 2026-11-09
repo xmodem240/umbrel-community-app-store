@@ -22,18 +22,11 @@ x-node-env: &node-env
   BITCOIN_RPC_PASS: bchn_local_rpc_pw_2f9c
   BITCOIN_ZMQ_HOST: sslabs-bitcoin-cash-node_bitcoind_1
   BITCOIN_ZMQ_HASHBLOCK_PORT: "28332"
-  # Filled in by Umbrel when the official "Bitcoin Cash Node" app is installed (optionalDependencies);
-  # empty otherwise. Used only by the "Umbrel Bitcoin Cash Node" choice on the Node card.
-  OFFICIAL_BCHN_HOST: ${APP_BITCOIN_CASH_NODE_NODE_IP}
-  OFFICIAL_BCHN_RPC_PORT: ${APP_BITCOIN_CASH_NODE_RPC_PORT}
-  OFFICIAL_BCHN_RPC_USER: ${APP_BITCOIN_CASH_NODE_RPC_USER}
-  OFFICIAL_BCHN_RPC_PASS: ${APP_BITCOIN_CASH_NODE_RPC_PASS}
-  OFFICIAL_BCHN_ZMQ_PORT: ${APP_BITCOIN_CASH_NODE_ZMQ_HASHBLOCK_PORT}
   BITCOIN_NETWORK: mainnet
   DATA_DIR: /data
 
 x-hardening: &hardening
-  image: ghcr.io/xmodem240/bch-lab:0.5.5
+  image: ghcr.io/xmodem240/bch-lab:0.5.6
   user: "1000:1000"
   init: true
   restart: on-failure

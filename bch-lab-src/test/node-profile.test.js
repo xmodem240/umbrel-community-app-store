@@ -234,7 +234,8 @@ test('the official Umbrel node profile takes its login from the environment', ()
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   try {
     for (const k of keys) delete process.env[k];
-    assert.throws(() => nodeProfile.normalise({ profile: 'umbrel' }), /has not given this app the login/);
+    assert.throws(() => nodeProfile.normalise({ profile: 'umbrel' }), /RPC user is required/);
+    assert.equal(nodeProfile.normalise({ profile: 'umbrel', rpcUser: 'a', rpcPass: 'b' }).host, 'bitcoin-cash-node_bitcoind_1');
     Object.assign(process.env, { OFFICIAL_BCHN_HOST: '10.21.0.9', OFFICIAL_BCHN_RPC_USER: 'u', OFFICIAL_BCHN_RPC_PASS: 'p', OFFICIAL_BCHN_RPC_PORT: '8332', OFFICIAL_BCHN_ZMQ_PORT: '28332' });
     const s = nodeProfile.normalise({ profile: 'umbrel' });
     assert.deepEqual([s.host, s.rpcUser, s.rpcPass, s.zmqPort], ['10.21.0.9', 'u', 'p', 28332]);

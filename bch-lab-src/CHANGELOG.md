@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.6
+
+- Start-up setup restored to that of 0.5.2 (no Umbrel dependency, no extra environment): 0.5.3-0.5.5 would not start on Umbrel. The official-node choice is kept; its RPC user and password are typed in.
+
 ## 0.5.5
 
 - Stratum Race: **AxePool** is now offered with the other local Umbrel pools (button, and it is found automatically when installed).
