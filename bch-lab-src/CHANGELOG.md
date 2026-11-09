@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.7
+
+- The Peer Map check is off by default. There is no Bitcoin Cash Peer Map, and the check looked up a container that does not exist every 30 seconds. `PEERMAP_HEALTH_URL` turns it on.
+- Docs brought up to date (AxePool, stratum login forms, node selection).
+
 ## 0.5.6
 
 - Start-up setup restored to that of 0.5.2 (no Umbrel dependency, no extra environment): 0.5.3-0.5.5 would not start on Umbrel. The official-node choice is kept; its RPC user and password are typed in.

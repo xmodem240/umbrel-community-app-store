@@ -21,7 +21,7 @@ Bitcoin Cash Peer Map.
 | Network port table | main/test/testnet4/signet/regtest | mainnet 8333, testnet3 18333, testnet4 28333, scalenet 38333, chipnet 48333, regtest 18444 |
 | `getblocktemplate` | `{rules: ['segwit']}` | `{}` (BCH has no segwit) |
 | Default Stratum Race pools | 8 Bitcoin solo pools | 2Miners Solo BCH (EU, US), Kryptex BCH (EU, US) |
-| Local pool detection | GoBrrr, Bassin, Public Pool, DATUM, Pogolo | LoneStrike Cash (`sslabs-solostrike-cash`), AxeBCH (`willitmod-dev-bch_ckpool_1:3333`) |
+| Local pool detection | GoBrrr, Bassin, Public Pool, DATUM, Pogolo | LoneStrike Cash (`sslabs-solostrike-cash`), AxeBCH (`willitmod-dev-bch_ckpool_1:3333`), AxePool (`kyle-axepool_server_1:3334`) |
 | Pool attribution list | bitcoin-data/mining-pools | empty (see MINING-POOLS.md) |
 | Database file | `bitcoinlab.db` | `bchlab.db` |
 
@@ -49,22 +49,21 @@ Run `node scripts/check-node.js` against your node to see which method it will u
 
 1. **`getblocktemplate` with `{}`.** Should work on BCHN; the template-timing number is
    non-critical and logs a warning on failure.
-2. **Stratum.** Pools are timed on `mining.notify`. The authorize username is a legacy
-   Base58 address (`1BitcoinEater...`), which is valid on BCH too; some pools may want a
-   CashAddr. Override with `STRATUM_AUTHORIZE_ADDRESS`.
+2. **Stratum.** Pools are timed on `mining.notify`. The authorize username is a burn address
+   tried in legacy and CashAddr form alternately (2Miners needs CashAddr, Kryptex takes legacy).
+   Override with `STRATUM_AUTHORIZE_ADDRESS`.
 6. **No Peer Map.** The Bitcoin sibling app has no BCH version; the link to it is inert.
 
 ## Node selection
 
-Neither Bitcoin Cash node app on Umbrel exports `APP_*` variables for the apps that
-use them, so the connection cannot be wired in the compose file. The Node card on the
+Declaring a node app as an Umbrel dependency (to receive its exported `APP_*` login) stopped this
+app from starting on Umbrel (0.5.3-0.5.5), so the connection is not wired in the compose file. The Node card on the
 dashboard saves the choice in `node-profile.json` (see `docs/configuration.md`). With
 nothing saved, the compose file's environment is used, which points at the LoneStrike
 Labs app (`sslabs-bitcoin-cash-node`, RPC user/password and container name read from its
 own docker-compose.yml, Oct 2026). If that app changes them, pick "Other" and enter them.
 
-The app no longer declares a hard Umbrel dependency on any one node app, since either
-can serve. It will install without a node and show "not connected" until one is chosen.
+The app declares no Umbrel dependency; the official Bitcoin Cash Node app is a choice on the Node card (you enter its RPC login). It will install without a node and show "not connected" until one is chosen.
 
 ## AxeBCH (WillItMod)
 

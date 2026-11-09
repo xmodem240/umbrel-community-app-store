@@ -17,7 +17,10 @@ const http = require('http');
  * A miss is the normal case: most people will install one app and not the
  * other. So a failure is silent and simply means no link.
  */
-const DEFAULT_URL = 'http://bchlab-peermap_web_1:8789/api/health';
+// There is no Bitcoin Cash Peer Map, so by default nothing is asked: the old default looked up a
+// container that does not exist, every 30 seconds, and let that name leave the Umbrel. Set
+// PEERMAP_HEALTH_URL to a health URL to switch the check on.
+const DEFAULT_URL = 'off';
 // An app is installed or removed by hand. Asking once every five minutes is
 // already generous, and it keeps a missing neighbour from costing a request on
 // every dashboard poll.
