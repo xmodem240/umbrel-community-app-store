@@ -9,13 +9,13 @@ description: >-
   Your peers decide how soon your Bitcoin Cash node hears about a new block. Bitcoin Cash Lab notes, for every block, which peer delivered it first and ranks your peers by it.
 
 
-  Pick your node software on the dashboard: the Bitcoin Cash Node app from LoneStrike Labs, WillItMod's AxeBCH, or any other BCHN-compatible node. A built-in test tells you whether RPC and ZMQ block notifications work before you save.
+  Pick your node software on the dashboard: the Bitcoin Cash Node app from LoneStrike Labs, the official Umbrel Bitcoin Cash Node app, WillItMod's AxeBCH, or any other BCHN-compatible node. A built-in test tells you whether RPC and ZMQ block notifications work before you save.
 
 
   Keep the good peers as manual peers (they are put back after a node restart) and, optionally, let a rotation drop peers that never deliver. Inbound peers are ranked too, but never replaced automatically.
 
 
-  Stratum Race times how quickly each mining pool turns a new block into fresh work: public BCH solo pools, plus a local LoneStrike Cash or AxeBCH pool if you run one. It is off until you switch it on.
+  Stratum Race times how quickly each mining pool turns a new block into fresh work: public BCH solo pools, plus a local LoneStrike Cash, AxeBCH or AxePool pool if you run one. It is off until you switch it on.
 
 
   For AxeBCH, host, ports and user are built in; you enter its per-install RPC password (the app tells you where to find it). Early release: not yet run against a live BCH node. Based on the MIT-licensed Bitcoin Lab by benunskilled.

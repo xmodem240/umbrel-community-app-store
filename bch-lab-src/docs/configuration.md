@@ -9,6 +9,7 @@ Open the **Node** card on the dashboard. It offers:
 | Choice | What it is |
 |---|---|
 | Bitcoin Cash Node (LoneStrike Labs app) | Umbrel app `sslabs-bitcoin-cash-node`. Login and ports are built in. |
+| Bitcoin Cash Node (official Umbrel app) | Umbrel app `bitcoin-cash-node`, the node AxePool uses. Host and ports are filled in; you enter its RPC user and password. |
 | AxeBCH (WillItMod) | Node + solo pool app from the WillItMod store. Host, ports and user are built in; you enter the per-install RPC password. See [bch-differences.md](bch-differences.md). |
 | Other BCHN-compatible node | Any node with Core-style JSON-RPC and ZMQ `hashblock`, on this Umbrel or elsewhere. |
 

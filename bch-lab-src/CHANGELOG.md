@@ -3,7 +3,7 @@
 ## 0.5.7
 
 - The Peer Map check is off by default. There is no Bitcoin Cash Peer Map, and the check looked up a container that does not exist every 30 seconds. `PEERMAP_HEALTH_URL` turns it on.
-- Docs brought up to date (AxePool, stratum login forms, node selection).
+- Docs and the store description brought up to date (AxePool, official node, stratum login forms, node selection).
 
 ## 0.5.6
 
