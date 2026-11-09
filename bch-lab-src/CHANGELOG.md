@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.5
+
+- Stratum Race: **AxePool** is now offered with the other local Umbrel pools (button, and it is found automatically when installed).
+
 ## 0.5.3
 
 - New choice on the Node card: **Bitcoin Cash Node (official Umbrel app)**, the node AxePool uses. Umbrel passes its address, RPC login and ZMQ port to this app, so selecting it needs no typing. Pick it, press Save, and the four services restart onto it.

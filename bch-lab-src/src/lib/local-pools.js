@@ -31,6 +31,9 @@ const LOCAL_POOLS = [
   // its container and published on the host as 4567 - which is what a miner on
   // the LAN uses. From in here only the container name and 3333 work.
   { key: 'axebch', label: 'AxeBCH', host: 'willitmod-dev-bch_ckpool_1', port: 3333 },
+  // AxePool (kyle-axepool): Stratum listens on 3334 inside its container and is
+  // published on the host as 3344 for miners. From in here, 3334.
+  { key: 'axepool', label: 'AxePool', host: 'kyle-axepool_server_1', port: 3334 },
 ];
 
 /**
