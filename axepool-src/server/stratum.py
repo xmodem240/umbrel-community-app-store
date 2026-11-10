@@ -243,6 +243,19 @@ def public_stratum_port(listen_port, env=os.environ):
     return listen_port
 
 
+# Subscribe user agents of known monitoring tools -> the name shown for them.
+MONITOR_AGENTS = (("bitcoin-cash-lab/", "Bitcoin Cash Lab"),)
+
+
+def monitor_name(user_agent):
+    """Display name when `user_agent` is a known monitoring tool, else None."""
+    ua = user_agent.strip().lower() if isinstance(user_agent, str) else ""
+    for prefix, name in MONITOR_AGENTS:
+        if ua.startswith(prefix):
+            return name
+    return None
+
+
 def seed_difficulty(ghs, target_spm):
     """Share difficulty at which `ghs` GH/s yields `target_spm` shares/minute.
 
@@ -269,7 +282,8 @@ def collect_sample(clients, since_mono, last_rejected, now_mono=None, devices=No
     now_mono = time.monotonic() if now_mono is None else now_mono
     miners = {}
     for c in clients:
-        if c.internal or not c.authorized or not c.raw_user:
+        if (c.internal or getattr(c, "monitor", None) or not c.authorized
+                or not c.raw_user):
             continue
         work = 0.0
         acc = 0
@@ -337,6 +351,10 @@ class ClientConn:
         self.subscribed = False
         self.authorized = False
         self.internal = False                # loopback self-test client (diagnostics)
+        # A monitoring tool that logs in like a miner to watch job timing but never
+        # hashes (Bitcoin Cash Lab's Stratum Race). It gets jobs as usual; it is not
+        # counted as a miner, graphed, polled, retargeted or alerted on.
+        self.monitor = None                  # display name, or None for a miner
         self.last_reject = None              # reason of the most recent rejected share
         self.worker = None
         self.model = None
@@ -383,6 +401,11 @@ class ClientConn:
         return f"[{who}]"
 
     def _record_accept(self, achieved_diff, assigned_diff):
+        if self.monitor:
+            # It submitted a valid share, so it is hashing: treat it as a miner.
+            log.info("%s sent a valid share - no longer treated as a monitor", self._tag())
+            self.monitor = None
+            self.server.note_miner(self)
         # `achieved_diff` is the true difficulty of the hash found (heavy-tailed,
         # used only for the best-diff bragging stat). `assigned_diff` is the
         # threshold the share had to beat — the correct work unit for hashrate,
@@ -478,6 +501,7 @@ class ClientConn:
         """
         v = self.jobs.vardiff
         if (self.seeded or not v.get("enabled") or not self.authorized or self.internal
+                or self.monitor
                 or self.difficulty is None or not device):
             return None
         if time.monotonic() - self.connected_mono > SEED_WINDOW:
@@ -505,6 +529,8 @@ class ClientConn:
         v = self.jobs.vardiff
         if not v.get("enabled") or not self.authorized or self.difficulty is None:
             return
+        if self.monitor:
+            return                           # sends no shares: nothing to tune
         now = time.monotonic()
         if now - self._last_vardiff < VARDIFF_INTERVAL:
             return
@@ -704,6 +730,7 @@ class ClientConn:
         self.subscribed = True
         if params and isinstance(params[0], str):
             self.model = _sanitize_label(params[0], MAX_MODEL_LEN) or None
+            self.monitor = monitor_name(params[0])
         sub = [["mining.set_difficulty", secrets.token_hex(4)],
                ["mining.notify", secrets.token_hex(4)]]
         await self.send_result(mid, [sub, self.extranonce1, EXTRANONCE2_SIZE])
@@ -750,7 +777,8 @@ class ClientConn:
             # fresh one is authorized, evict that stale twin so it can't
             # duplicate the row.
             self.server.evict_stale_duplicates(self)
-            self.server.note_miner(self)  # track for the offline monitor
+            if not self.monitor:
+                self.server.note_miner(self)  # track for the offline monitor
         self.jobs.register(self)
         # Start from the configured share difficulty. With vardiff on, a
         # difficulty the miner suggested (clamped) is used instead and vardiff
@@ -1123,7 +1151,7 @@ async def main():
         while True:
             await asyncio.sleep(HISTORY_TICK)
             try:
-                clients = [c for c in server.clients if not c.internal]
+                clients = [c for c in server.clients if not c.internal and not c.monitor]
                 hr = sum(c.window_hashrate(300) for c in clients)
                 sps = sum(c.shares_in(60) for c in clients) / 60.0
                 history.add(hr, sps, len(clients))

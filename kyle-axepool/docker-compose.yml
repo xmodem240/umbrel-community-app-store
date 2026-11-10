@@ -20,8 +20,7 @@ services:
       APP_PORT: 3335
 
   server:
-    # Pinned by digest: Umbrel runs exactly the image CI built and scanned for 0.5.0.
-    image: ghcr.io/xmodem240/axepool:0.5.0@sha256:4e3477ecedef84285cd03251cd460d2798a4b0de55df771bda0b654441b2980b
+    image: ghcr.io/xmodem240/axepool:0.5.1
     # Umbrel owns the app's data dir as UID 1000; the shipped data/ folder is copied in
     # 1000-owned on install.
     user: "1000:1000"

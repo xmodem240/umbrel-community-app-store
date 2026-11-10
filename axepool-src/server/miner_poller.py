@@ -276,7 +276,8 @@ class MinerPoller:
         now = self._now()
         seen = {}
         for c in clients:
-            if getattr(c, "internal", False) or not getattr(c, "authorized", False):
+            if (getattr(c, "internal", False) or getattr(c, "monitor", None)
+                    or not getattr(c, "authorized", False)):
                 continue
             peer = getattr(c, "peer", None)
             if not peer:

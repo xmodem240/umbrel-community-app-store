@@ -57,7 +57,15 @@ def human_hashrate(hps: float) -> str:
 def build_snapshot(server, jobs) -> dict:
     now = time.time()
     # The diagnostics self-test client is internal plumbing, not a miner.
-    clients = [c for c in server.clients if not getattr(c, "internal", False)]
+    # Monitoring tools (Bitcoin Cash Lab's Stratum Race) log in like miners but
+    # never hash: listed separately, left out of every miner count and total.
+    monitors = [{"name": c.monitor, "ip": c.peer[0] if c.peer else None,
+                 "connected_s": round(time.monotonic() - c.connected_mono)}
+                for c in server.clients
+                if getattr(c, "monitor", None) and c.authorized
+                and not getattr(c, "internal", False)]
+    clients = [c for c in server.clients if not getattr(c, "internal", False)
+               and not getattr(c, "monitor", None)]
     miners = [c.stats_snapshot(now) for c in clients]
 
     def sum_hr(w):
@@ -98,6 +106,7 @@ def build_snapshot(server, jobs) -> dict:
         "pool": pool,
         "node": jobs.status_snapshot(),
         "miners": miners,
+        "monitors": monitors,
         "generated": now,
     }
 
@@ -320,6 +329,7 @@ details.tbl table{margin-top:8px}
 .mgrid .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mgrid .v small{color:#8b949e;font-weight:600;font-size:11px}
 .mnote{color:#8b949e;font-size:12px;margin-top:8px}
+.monline{color:#8b949e;font-size:12px;margin:-8px 0 20px}.monline b{color:#adbac7;font-weight:600}
 .mrej{margin-top:8px;font-size:12px;color:#8b949e}.mrej b{color:#e6edf3;font-weight:600}
 .mfw{margin-top:8px;font-size:12px;color:#8b949e;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
 .mfw b{color:#e6edf3;font-weight:600}.mfw a{color:#58a6ff;text-decoration:none}.mfw a:hover{text-decoration:underline}
@@ -349,6 +359,7 @@ details.tbl table{margin-top:8px}
 </div>
 <h3 class="mhead" id="mHead" hidden>Miners <span class="dim" style="font-size:12px;font-weight:400">· tap a miner for its graphs</span></h3>
 <div class="mcards" id="mcards"></div>
+<div class="monline" id="monLine" hidden></div>
 </div>
 <table><thead><tr><th>Miner</th><th>IP</th><th>Model</th><th>Payout (BCH)</th><th>Hashrate</th>
 <th>Diff</th><th>Best diff</th><th>Blocks</th><th>Accepted</th><th>Rejected</th><th>Last share</th></tr></thead>
@@ -638,6 +649,10 @@ function renderCards(){
   const n=el.querySelector('.mnote');n.hidden=!c.note;n.textContent=c.note;
   el.querySelector('.mcharts').hidden=gOpen!==k;box.appendChild(el);});
  document.getElementById('mHead').hidden=!want.length;
+ const mons=(gStatus&&gStatus.monitors)||[],ml=document.getElementById('monLine');
+ ml.hidden=!mons.length;
+ if(mons.length)ml.innerHTML='Monitor connected: '+mons.map(x=>'<b>'+esc(x.name)+'</b>').join(', ')
+  +' <span>· watches job timing only, never mines, not counted as a miner</span>';
 }
 
 function renderOpen(){
@@ -1239,7 +1254,7 @@ class StatusServer:
                 return _json("503 Service Unavailable",
                              {"ok": False, "error": "miner polling unavailable"})
             ids = [c.raw_user for c in self.server.clients
-                   if c.authorized and not c.internal and c.raw_user]
+                   if c.authorized and not c.internal and not c.monitor and c.raw_user]
             snap = self.poller.snapshot(ids)
             if self.firmware is not None:
                 for row in snap["miners"]:

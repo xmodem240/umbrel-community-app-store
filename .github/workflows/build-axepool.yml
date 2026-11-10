@@ -35,6 +35,7 @@ jobs:
       - run: python server/test_diff_change.py
       - run: python server/test_firmware_check.py
       - run: python server/test_rejects.py
+      - run: python server/test_monitor.py
   build:
     needs: test
     # Pull requests only run the tests. Other branches (workflow_dispatch) build, smoke test

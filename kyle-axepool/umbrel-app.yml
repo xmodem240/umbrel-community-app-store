@@ -3,7 +3,7 @@ id: kyle-axepool
 category: bitcoin
 name: AxePool
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/axepool-icon.svg
-version: "0.5.0"
+version: "0.5.1"
 tagline: Solo mine Bitcoin Cash with your Bitaxe and NerdQaxe miners
 description: >-
   AxePool is a self-hosted Bitcoin Cash (BCH) solo-mining Stratum server for your own Bitcoin Cash
@@ -22,9 +22,9 @@ description: >-
 
   Early release. Based on the MIT-licensed SoloBCH Forge by DanCreatesStuff.
 releaseNotes: >-
-  Miner cards now show why shares were rejected: low difficulty, stale, duplicate or other, for the
-  miner's current connection. Lifetime totals by reason are kept from this version on and exported
-  to Prometheus. Upgrading keeps your existing stats.
+  Bitcoin Cash Lab's Stratum Race connection is no longer shown as a miner. It still receives jobs,
+  so its timing keeps working, but it is listed as a monitor under the miner cards and left out of
+  the worker count, graphs, miner polling and offline alerts.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies:
