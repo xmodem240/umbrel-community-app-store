@@ -33,7 +33,7 @@ from history import History
 from metrics_store import MetricsStore, SAMPLE_INTERVAL as METRICS_TICK
 from miner_poller import MinerPoller, parse_target_list
 from firmware_check import FirmwareChecker
-from stats import Stats, stats_path
+from stats import Stats, stats_path, REJECT_KINDS
 from status import StatusServer, human_hashrate
 from template import BlockTemplate
 
@@ -363,6 +363,7 @@ class ClientConn:
         self.connected_mono = time.monotonic()
         self.accepted = 0
         self.rejected = 0
+        self.reject_kinds = dict.fromkeys(REJECT_KINDS, 0)   # this connection, by reason
         self.last_share_wall = None
         self.best_diff = 0.0                 # highest achieved share difficulty seen
         self._shares = deque()               # (monotonic_ts, assigned_share_difficulty)
@@ -401,11 +402,12 @@ class ClientConn:
                      "payout": self.payout_address, "time": time.time()}
             asyncio.create_task(self.jobs.notify_best_diff(entry))
 
-    def _record_reject(self, reason=None):
+    def _record_reject(self, reason=None, kind="other"):
         self.rejected += 1
+        self.reject_kinds[kind] += 1
         if reason:
             self.last_reject = reason
-        self.jobs.stats.record_reject()
+        self.jobs.stats.record_reject(kind)
 
     def window_hashrate(self, window_s):
         """Average hashrate over the last `window_s` seconds (H/s)."""
@@ -546,6 +548,7 @@ class ClientConn:
             "difficulty": self.difficulty,
             "accepted": self.accepted,
             "rejected": self.rejected,
+            "rejects": dict(self.reject_kinds),
             "best_diff": self.best_diff,
             "blocks": self.jobs.stats.blocks_for_worker(self.worker),
             "last_share_ago": (now_wall - self.last_share_wall)
@@ -775,7 +778,7 @@ class ClientConn:
             return
         src = self.jobs.get_source(job_id)
         if src is None:
-            self._record_reject("Job not found (stale)")
+            self._record_reject("Job not found (stale)", "stale")
             log.info("%s REJECT stale/unknown job %s", self._tag(), job_id[:16])
             await self.send_result(mid, None, [21, "Job not found (stale)", None])
             return
@@ -806,7 +809,7 @@ class ClientConn:
             # Rebuild from the payout(s) this job was actually sent with.
             payouts = self.job_payouts.get(job_id)
             if not payouts:
-                self._record_reject("Job not found (stale)")
+                self._record_reject("Job not found (stale)", "stale")
                 log.info("%s REJECT job %s was never sent to this connection",
                          self._tag(), job_id[:16])
                 await self.send_result(mid, None, [21, "Job not found (stale)", None])
@@ -843,7 +846,7 @@ class ClientConn:
                 del self.seen_shares[old]
             seen = self.seen_shares[job_id] = set()
         if key in seen:
-            self._record_reject("Duplicate share")
+            self._record_reject("Duplicate share", "duplicate")
             await self.send_result(mid, None, [22, "Duplicate share", None])
             return
         if len(seen) >= MAX_SHARES_PER_JOB:
@@ -913,7 +916,7 @@ class ClientConn:
             log.warning("%s BLOCK SHARE job=%s hash=%s", self._tag(), job_id, hash_be)
         elif self.jobs.is_stale(src):
             # Work on a chain tip that has been replaced is worthless.
-            self._record_reject("Stale share")
+            self._record_reject("Stale share", "stale")
             log.info("%s REJECT stale share on job %s (tip changed)", self._tag(),
                      job_id)
             await self.send_result(mid, None, [21, "Stale share", None])
@@ -924,7 +927,7 @@ class ClientConn:
                      self._tag(), job_id, share_diff, hash_be[:24],
                      human_hashrate(self.window_hashrate(300)))
         else:
-            self._record_reject("Low difficulty share")
+            self._record_reject("Low difficulty share", "low_diff")
             await self.send_result(mid, None, [23, "Low difficulty share", None])
 
     async def _submit_block(self, src, coinbase_raw, header, hash_be, job_id,

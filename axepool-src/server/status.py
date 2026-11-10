@@ -76,6 +76,7 @@ def build_snapshot(server, jobs) -> dict:
         "best_diff_worker": st["best_diff_worker"],
         "accepted": st["lifetime_accepted"],            # lifetime, persisted
         "rejected": st["lifetime_rejected"],            # lifetime, persisted
+        "rejected_by": st["lifetime_rejected_by"],      # lifetime, by reason (from 0.5.0)
         "accepted_session": sum(c.accepted for c in clients),
         "rejected_session": sum(c.rejected for c in clients),
         "shares_per_sec": sum(c.shares_in(60) for c in clients) / 60.0,
@@ -159,6 +160,9 @@ def build_metrics(server, jobs) -> str:
            "Lifetime accepted shares (persisted).", [("", p["accepted"])])
     metric("solobch_shares_rejected_total", "counter",
            "Lifetime rejected shares (persisted).", [("", p["rejected"])])
+    metric("solobch_shares_rejected_by_reason_total", "counter",
+           "Lifetime rejected shares by reason (persisted, counted since 0.5.0).",
+           [(f'reason="{k}"', v) for k, v in sorted(p["rejected_by"].items())])
     metric("solobch_session_shares_accepted", "gauge",
            "Accepted shares since this process started.",
            [("", p["accepted_session"])])
@@ -316,6 +320,7 @@ details.tbl table{margin-top:8px}
 .mgrid .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mgrid .v small{color:#8b949e;font-weight:600;font-size:11px}
 .mnote{color:#8b949e;font-size:12px;margin-top:8px}
+.mrej{margin-top:8px;font-size:12px;color:#8b949e}.mrej b{color:#e6edf3;font-weight:600}
 .mfw{margin-top:8px;font-size:12px;color:#8b949e;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
 .mfw b{color:#e6edf3;font-weight:600}.mfw a{color:#58a6ff;text-decoration:none}.mfw a:hover{text-decoration:underline}
 .mcharts{margin-top:12px;border-top:1px solid #21262d;padding-top:10px}
@@ -561,6 +566,13 @@ function fwLine(d){
  const tail=[f.state==='off'?'':checked,failed].filter(Boolean).join(' · ');
  return '<div class="mfw">'+cur+st+(tail?'<span>· '+tail+'</span>':'')+'</div>';
 }
+function rejLine(m){
+ // Why this miner's shares were rejected, for the current connection.
+ if(!m||!m.rejects||!m.rejected)return '';
+ const r=m.rejects,parts=[['low_diff','low difficulty'],['stale','stale'],['duplicate','duplicate'],['other','other']]
+  .filter(p=>r[p[0]]>0).map(p=>'<b>'+esc(humanNum(r[p[0]]))+'</b> '+p[1]);
+ return parts.length?'<div class="mrej">Rejected this connection: '+parts.join(' · ')+'</div>':'';
+}
 function devFor(id){return gDevices?(gDevices.miners||[]).find(d=>d.linked_identity===id)||null:null;}
 
 function cardHtml(m,d){
@@ -594,14 +606,14 @@ function cardHtml(m,d){
   :'Miner API not reached yet. If this lasts, add the miner’s address under Settings → Miner monitoring.';
  else if(d.status==='offline')note='Miner API unreachable: '+(d.last_error||'no answer')+'. Pool figures are still live.';
  else if(dm&&dm.on_fallback_pool)note='The miner reports it is on its fallback pool.';
- return {fw:fwLine(d),head:'<div><div class="mn">'+esc(name)+'</div><div class="mm">'+meta+'</div></div><div class="mhr">'+st
+ return {rej:rejLine(m),fw:fwLine(d),head:'<div><div class="mn">'+esc(name)+'</div><div class="mm">'+meta+'</div></div><div class="mhr">'+st
    +(m?'<span class="chev" aria-hidden="true">'+(gOpen===m.identity?'▴':'▾')+'</span>':'')+'</div>',cells:cells,note:note};
 }
 
 function ensureCard(key,openable){
  let el=mEls[key];if(el)return el;
  el=document.createElement('div');el.className='mcard';
- el.innerHTML='<div class="mh"></div><div class="mgrid"></div><div class="mfwbox"></div><div class="mnote" hidden></div>'
+ el.innerHTML='<div class="mh"></div><div class="mgrid"></div><div class="mrejbox"></div><div class="mfwbox"></div><div class="mnote" hidden></div>'
   +'<div class="mcharts" hidden><div class="sub">Hashrate <span class="dim">(this miner)</span></div><div class="legend"></div><div class="chart"></div>'
   +'<div class="sub">Hottest chip</div><div class="chart"></div></div>';
  if(openable){const h=el.querySelector('.mh');h.setAttribute('role','button');h.tabIndex=0;
@@ -622,7 +634,7 @@ function renderCards(){
  Object.keys(mEls).forEach(k=>{if(!keep.has(k)){mEls[k].remove();delete mEls[k];if(gOpen===k)gOpen=null;}});
  want.forEach(([k,el,c])=>{
   el.querySelector('.mh').innerHTML=c.head;el.querySelector('.mh').setAttribute('aria-expanded',gOpen===k?'true':'false');
-  el.querySelector('.mgrid').innerHTML=c.cells;el.querySelector('.mfwbox').innerHTML=c.fw;
+  el.querySelector('.mgrid').innerHTML=c.cells;el.querySelector('.mrejbox').innerHTML=c.rej;el.querySelector('.mfwbox').innerHTML=c.fw;
   const n=el.querySelector('.mnote');n.hidden=!c.note;n.textContent=c.note;
   el.querySelector('.mcharts').hidden=gOpen!==k;box.appendChild(el);});
  document.getElementById('mHead').hidden=!want.length;

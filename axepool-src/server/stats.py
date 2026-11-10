@@ -30,6 +30,11 @@ import time
 
 log = logging.getLogger("solobch.stats")
 
+# Why a share was rejected. "stale": job gone or chain tip replaced; "low_diff":
+# below the job's share difficulty; "duplicate": same share twice; "other":
+# malformed, unauthorized, bad ntime and the like.
+REJECT_KINDS = ("low_diff", "stale", "duplicate", "other")
+
 SAVE_MIN_INTERVAL = 10.0     # seconds; throttle for high-frequency updates
 MAX_BLOCKS = 100             # keep this many block records (bounded file size)
 
@@ -49,6 +54,7 @@ class Stats:
         self.best_diff_worker = None      # worker label that found it
         self.lifetime_accepted = 0
         self.lifetime_rejected = 0
+        self.lifetime_rejected_by = dict.fromkeys(REJECT_KINDS, 0)
         self.lifetime_work = 0.0          # sum of assigned share difficulty (work units)
         self.mining_seconds = 0.0         # accumulated seconds the server has run
         self.blocks = []                  # persisted block-found history
@@ -82,6 +88,14 @@ class Stats:
         self.best_diff_worker = data.get("best_diff_worker")
         self.lifetime_accepted = int(data.get("lifetime_accepted") or 0)
         self.lifetime_rejected = int(data.get("lifetime_rejected") or 0)
+        # Added in 0.5.0: older files have only the total, so the breakdown
+        # starts from zero and covers rejects recorded from then on.
+        by = data.get("lifetime_rejected_by")
+        for k in REJECT_KINDS:
+            try:
+                self.lifetime_rejected_by[k] = max(0, int((by or {}).get(k) or 0))
+            except (TypeError, ValueError, AttributeError):
+                self.lifetime_rejected_by[k] = 0
         self.lifetime_work = float(data.get("lifetime_work") or 0.0)
         self.mining_seconds = float(data.get("mining_seconds") or 0.0)
         blocks = data.get("blocks")
@@ -98,6 +112,7 @@ class Stats:
             "best_diff_worker": self.best_diff_worker,
             "lifetime_accepted": self.lifetime_accepted,
             "lifetime_rejected": self.lifetime_rejected,
+            "lifetime_rejected_by": dict(self.lifetime_rejected_by),
             "lifetime_work": self.lifetime_work,
             "mining_seconds": self.mining_seconds,
             "blocks": self.blocks,
@@ -159,8 +174,11 @@ class Stats:
         self._save()                      # throttled
         return False
 
-    def record_reject(self):
+    def record_reject(self, kind="other"):
         self.lifetime_rejected += 1
+        if kind not in REJECT_KINDS:
+            kind = "other"
+        self.lifetime_rejected_by[kind] += 1
         self._dirty = True
         self._save()                      # throttled
 
@@ -188,6 +206,7 @@ class Stats:
         self.best_diff_worker = None
         self.lifetime_accepted = 0
         self.lifetime_rejected = 0
+        self.lifetime_rejected_by = dict.fromkeys(REJECT_KINDS, 0)
         self.lifetime_work = 0.0
         self.mining_seconds = 0.0
         self._session_start = time.monotonic()
@@ -205,6 +224,7 @@ class Stats:
             "best_diff_worker": self.best_diff_worker,
             "lifetime_accepted": self.lifetime_accepted,
             "lifetime_rejected": self.lifetime_rejected,
+            "lifetime_rejected_by": dict(self.lifetime_rejected_by),
             "lifetime_work": self.lifetime_work,
             "mining_seconds": mining_seconds,
             "blocks_found": len(self.blocks),
