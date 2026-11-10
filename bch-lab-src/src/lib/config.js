@@ -38,6 +38,11 @@ const linkPort = Number(process.env.PEERMAP_LINK_PORT);
 
 module.exports = {
   readOnly: process.env.LAB_READ_ONLY === '1',
+  // The app's own app_proxy container on umbrelOS 1.x
+  // (kyle-bch-lab_app_proxy_1): writes are taken from there and from the
+  // Docker gateway, where umbrelOS 2.x's proxy connects from. See
+  // lib/write-source.js.
+  trustedProxyHost: pick(process.env.TRUSTED_PROXY_HOST, ''),
   peerMapLinkPort: Number.isInteger(linkPort) && linkPort > 0 && linkPort < 65536 ? linkPort : 0,
   // Which node profile is in force and where that came from; `signature` is what
   // the restart-on-change watcher compares against.
@@ -303,7 +308,9 @@ module.exports = {
   // How many rotation-log entries exist at all. Not a retention window: the
   // table is trimmed to this on every write, so what is stored is exactly what
   // the dashboard can show. Nothing is kept that is not shown.
-  rotationLogEntries: Number(pick(process.env.ROTATION_LOG_ENTRIES, '30')),
+  // A thousand: two months or so at 15-20 kicks a day, and the runs of empty
+  // kicks show as one line each, so even all of it reads as a short history.
+  rotationLogEntries: Number(pick(process.env.ROTATION_LOG_ENTRIES, '1000')),
 
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };

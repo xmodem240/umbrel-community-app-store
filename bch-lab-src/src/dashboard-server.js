@@ -37,6 +37,9 @@ const peerRotation = require('./lib/peer-rotation');
 const { recentRelayStats } = require('./lib/queries/peer-ranking');
 const stratumRace = require('./lib/stratum-race-toggle');
 const logger = require('./lib/logger').make('dashboard');
+const { makeWriteSource } = require('./lib/write-source');
+
+const writeAllowedFrom = makeWriteSource({ host: config.trustedProxyHost });
 
 const PUBLIC_DIR = path.join(__dirname, 'dashboard', 'public');
 const MIME = {
@@ -745,6 +748,22 @@ async function router(req, res, pathname, url) {
       // takes longer than the next.
       templateTx: race.templateTx ?? null,
       firstPingMs: race.firstPingMs ?? null,
+      // How Core rebuilt it from the compact block: 'mempool' (nothing
+      // missing), 'asked' (it asked a peer for missing transactions;
+      // reconMissingBytes is what came back), 'full' (downloaded whole) or
+      // 'unclear' (both at once - lib/reconstruction.js).
+      // null where it could not be told, and on older blocks.
+      recon: race.recon ?? null,
+      reconMissingBytes: race.reconMissingBytes ?? null,
+      // The block's size in bytes, to read reconMissingBytes as a share of
+      // it. Known once the pool is attributed, a moment after the block.
+      blockSize: race.blockSize ?? null,
+      // The same over the last day and the last seven days.
+      reconDay: queries.reconstructionDay(),
+      reconWeek: queries.reconstructionWeek(),
+      // The same over the last hundred blocks, the "typical" window of the
+      // route below; Peer Map reads this one.
+      reconLast100: queries.reconstructionLast(),
       // The same route for the typical block - the median over the last
       // hundred - so a change shows up as a shorter stretch.
       routeMedian: queries.routeMedian(),
@@ -899,12 +918,19 @@ async function router(req, res, pathname, url) {
                     LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
         .get(address);
       const recent = peer && recentRelayStats().get(peer.id);
+      // Which way the connection went, from its newest session: dropping a
+      // stranger that dialled in is a different decision from dropping one of
+      // Core's own outbound picks, and the log could not tell them apart.
+      const session = peer && db.instance
+        .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
+        .get(peer.id);
+      const way = session && /^(inbound|outbound)$/.test(session.direction) ? ` · ${session.direction}` : '';
       peerRotation.logAction({
         action: 'disconnect',
         address,
         firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
         eligible: peer ? peer.eligible : null,
-        note: `by hand · ${recent ? recent.first : 0}/${recent ? recent.eligible : 0} recent blocks first`,
+        note: `by hand${way} · ${recent ? recent.first : 0}/${recent ? recent.eligible : 0} recent blocks first`,
       });
     } catch (err) {
       logger.warn('rotation log entry for a disconnect failed', { address, error: err.message });
@@ -1030,6 +1056,17 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (pathname.startsWith('/api/')) {
+      // Another app on the node's Docker network sends no browser headers, so
+      // refuseWrite lets it through; only Umbrel's proxy may write.
+      if (WRITE_METHODS.has(req.method) && !(await writeAllowedFrom(req.socket.remoteAddress))) {
+        const seen = { ...writeAllowedFrom.describe(req.socket.remoteAddress), forwardedFor: req.headers['x-forwarded-for'] || null };
+        logger.warn('refused a write from outside the app', { path: pathname, ...seen });
+        sendJson(res, 403, {
+          error: 'writes are only accepted through the app\'s own page',
+          ...(process.env.WRITE_SOURCE_DEBUG === '1' ? { seen } : {}),
+        });
+        return;
+      }
       const refused = refuseWrite(req);
       if (refused) {
         logger.warn('refused a write', { path: pathname, status: refused[0], origin: req.headers.origin || null });

@@ -3,7 +3,7 @@ id: kyle-bch-lab
 category: bitcoin
 name: Bitcoin Cash Lab
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bch-lab-icon.svg
-version: "0.5.7"
+version: "0.6.0"
 tagline: See which peers bring your Bitcoin Cash node new blocks first
 description: >-
   Your peers decide how soon your Bitcoin Cash node hears about a new block. Bitcoin Cash Lab notes, for every block, which peer delivered it first and ranks your peers by it.
@@ -20,7 +20,7 @@ description: >-
 
   For AxeBCH, host, ports and user are built in; you enter its per-install RPC password (the app tells you where to find it). Early release: not yet run against a live BCH node. Based on the MIT-licensed Bitcoin Lab by benunskilled.
 releaseNotes: >-
-  Quieter network use: the app no longer looks for a Peer Map container that cannot exist for Bitcoin Cash. Documentation refreshed.
+  Applies Bitcoin Lab 2.4.0 and 2.5.0. Security: other apps on your Umbrel can no longer change this app's settings or peers behind Umbrel's login. Stratum Race ignores made-up blocks and has a 10 / 100 / all-time switch, each block shows how it was rebuilt, and the rotation log keeps 1,000 entries.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies: []

@@ -27,7 +27,7 @@
 const { peerRanking } = require('./peer-ranking');
 const { weakestTrustedPeer, offlineTrustedPeers, liveSummary } = require('./peers');
 const { stratumRanking, deletePool } = require('./stratum');
-const { latestBlock, blockDetail, routeMedian, deliveredEver, unclearFirsts, attributionHealth } = require('./blocks');
+const { latestBlock, blockDetail, routeMedian, reconstructionDay, reconstructionWeek, reconstructionLast, deliveredEver, unclearFirsts, attributionHealth } = require('./blocks');
 const { outboundFunnel } = require('./stats');
 const { pruneOldData, pruneNeverFirstPeers } = require('./maintenance');
 const { trafficDays } = require('./traffic');
@@ -40,6 +40,9 @@ module.exports = {
   stratumRanking,
   blockDetail,
   routeMedian,
+  reconstructionDay,
+  reconstructionWeek,
+  reconstructionLast,
   deliveredEver,
   latestBlock,
   unclearFirsts,

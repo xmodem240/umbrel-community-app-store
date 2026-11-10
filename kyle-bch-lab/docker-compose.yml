@@ -26,7 +26,7 @@ x-node-env: &node-env
   DATA_DIR: /data
 
 x-hardening: &hardening
-  image: ghcr.io/xmodem240/bch-lab:0.5.7
+  image: ghcr.io/xmodem240/bch-lab:0.6.0
   user: "1000:1000"
   init: true
   restart: on-failure
@@ -52,6 +52,9 @@ services:
     environment:
       <<: *node-env
       DASHBOARD_PORT: "8788"
+      # Writes are taken only from Umbrel's proxy: this container on umbrelOS 1.x, the Docker
+      # gateway on 2.x (found by the app itself). See src/lib/write-source.js.
+      TRUSTED_PROXY_HOST: kyle-bch-lab_app_proxy_1
     healthcheck:
       # Double-quoted on purpose: the JS contains ": " which a plain YAML scalar would read as a mapping.
       test:

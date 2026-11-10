@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0
+
+From upstream Bitcoin Lab 2.4.0 and 2.5.0:
+
+- **Security: settings can only be changed through Umbrel's own proxy.** Every Umbrel app shares one Docker
+  network, so another installed app could reach this dashboard directly, past Umbrel's login, and add or drop
+  peers or change the node settings. Writes are now taken only from Umbrel's proxy (or from inside the
+  container); reading stays open.
+- Two swaps racing for the same manual slot can no longer both take it, and a swap no longer removes a peer
+  that got its padlock in the meantime.
+- Stratum Race only counts a block your node knows (a pool can no longer invent one and charge the others a
+  miss), and its range is a switch: 10 blocks, 100 blocks or all time.
+- Each block records how it was rebuilt: from the mempool alone, after asking for missing transactions, or
+  downloaded whole; shown as shares over the last 100 blocks. Each block's size is recorded.
+- Rotation log: keeps 1,000 entries, says "nothing first in 50 blocks" plainly, and says whether a peer
+  dropped by hand was inbound or outbound.
+- Miner names are shown in full.
+
 ## 0.5.7
 
 - The Peer Map check is off by default. There is no Bitcoin Cash Peer Map, and the check looked up a container that does not exist every 30 seconds. `PEERMAP_HEALTH_URL` turns it on.
