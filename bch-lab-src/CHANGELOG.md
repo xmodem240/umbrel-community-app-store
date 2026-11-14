@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.1
+
+From upstream Bitcoin Lab 2.6.0, the parts that fit Bitcoin Cash:
+
+- How a block was rebuilt: a whole block that a peer pushes unasked, beside a compact block, no longer makes
+  the block read "downloaded in full".
+- Ranking: a peer's client and services come from a connection that finished its handshake, so a working peer
+  no longer reads "offers no services" after a failed second connection.
+- Stratum Race "all time" follows the daily clean-up at once instead of at the next block.
+- The toast message stays on screen on a phone.
+
+Not taken over: **Slot Fill**, upstream's replacement for the rotation. It fills manual slots from Bitcoin
+Core's `getrawaddrman`, which BCHN does not have, and requires the segwit service bit, which no Bitcoin Cash
+node sets; it would pick nobody here. It also removes the performance-based rotation this app exists for.
+The dashboard changes built on it, and the Bitcoin pool and client names, are left out with it.
+
 ## 0.6.0
 
 From upstream Bitcoin Lab 2.4.0 and 2.5.0:
