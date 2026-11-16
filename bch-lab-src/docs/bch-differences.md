@@ -92,3 +92,18 @@ Not checked: that their patched BCHN (`-wm3`) returns the `getpeerinfo` fields l
 and that this app's RPC and ZMQ connections coexist with theirs on a running node. Test
 and `scripts/check-node.js` answer the first. Note that AxeBCH2 (`willitmod-dev-axebch2`)
 is a different chain (Bitcoin Cash II); do not point this app at it.
+
+## Peer Map
+
+`map/` is upstream's Peer Map 2.8.0 (Go, MIT), the app upstream merged with Bitcoin Lab into Peer Lab in
+November 2026. Changes for Bitcoin Cash, all in `map/bch.go` and marked where they hook in:
+
+- Bitcoin Cash clients are nodes by their own names; `/Satoshi:` (Bitcoin Core, Knots), Bitcoin ABC (eCash)
+  and Bitcoin SV are "Other chain". Upstream has it the other way round.
+- Off: the checks that hold a peer to Bitcoin Core's release history ("Disguised"), Knots' service bits 27 to
+  29, and the list of Bitcoin pools' node addresses. The LinkingLion ranges, wallets, crawlers and research
+  scanners are read as upstream reads them; they have not been verified on the Bitcoin Cash network.
+- It does not talk to the node. The dashboard starts it on loopback (`src/lib/peer-map.js`), hands it the
+  peer list already normalised (`/api/node/peerinfo`, loopback only) and serves its page under `/map/`.
+- Geolocation and operators: DB-IP Lite (CC BY 4.0). World map: Natural Earth. Tor exits: the Tor Project.
+  See `map/geo/SOURCE.md`, `map/asn/SOURCE.md`, `map/torexit/SOURCE.md`.

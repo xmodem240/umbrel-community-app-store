@@ -23,6 +23,12 @@ jobs:
           node-version: 22
       - run: npm ci --no-audit --no-fund
       - run: npm test
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bch-lab-src/map/go.mod
+          cache: false
+      - run: go test ./...
+        working-directory: bch-lab-src/map
   build:
     needs: test
     runs-on: ubuntu-latest

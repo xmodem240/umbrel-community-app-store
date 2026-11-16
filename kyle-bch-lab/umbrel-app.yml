@@ -3,7 +3,7 @@ id: kyle-bch-lab
 category: bitcoin
 name: Bitcoin Cash Lab
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bch-lab-icon.svg
-version: "0.6.1"
+version: "0.7.0"
 tagline: See which peers bring your Bitcoin Cash node new blocks first
 description: >-
   Your peers decide how soon your Bitcoin Cash node hears about a new block. Bitcoin Cash Lab notes, for every block, which peer delivered it first and ranks your peers by it.
@@ -12,15 +12,18 @@ description: >-
   Pick your node software on the dashboard: the Bitcoin Cash Node app from LoneStrike Labs, the official Umbrel Bitcoin Cash Node app, WillItMod's AxeBCH, or any other BCHN-compatible node. A built-in test tells you whether RPC and ZMQ block notifications work before you save.
 
 
+  Peer Map shows where your peers are on a world map, who hosts them and what software they run. Everything is looked up inside the app; no peer address leaves your Umbrel.
+
+
   Keep the good peers as manual peers (they are put back after a node restart) and, optionally, let a rotation drop peers that never deliver. Inbound peers are ranked too, but never replaced automatically.
 
 
   Stratum Race times how quickly each mining pool turns a new block into fresh work: public BCH solo pools, plus a local LoneStrike Cash, AxeBCH or AxePool pool if you run one. It is off until you switch it on.
 
 
-  For AxeBCH, host, ports and user are built in; you enter its per-install RPC password (the app tells you where to find it). Early release: not yet run against a live BCH node. Based on the MIT-licensed Bitcoin Lab by benunskilled.
+  For AxeBCH, host, ports and user are built in; you enter its per-install RPC password (the app tells you where to find it). Based on the MIT-licensed Bitcoin Lab and Peer Map by benunskilled. Geolocation by DB-IP.
 releaseNotes: >-
-  Fixes from Bitcoin Lab 2.6.0 that fit Bitcoin Cash: blocks pushed unasked no longer read as downloaded in full, a working peer no longer reads "offers no services", and the phone toast stays on screen. Its Slot Fill is not included because it needs Bitcoin Core features BCHN does not have.
+  New: Peer Map, from upstream's new Peer Lab. A world map of your peers, who hosts them and what software they run, with the route of the newest block. Open it from the header. Everything is looked up inside the app; no peer address leaves your Umbrel. Your rotation and data are unchanged.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies: []

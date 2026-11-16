@@ -9,6 +9,24 @@
 # Debian security fixes) arrive only when this digest is moved on, together
 # with the tag, as part of a release.
 
+# The peer map (map/, Go): one static binary with its page, the world map and
+# the region and operator tables embedded. Built on the build machine's own
+# architecture and cross-compiled, so the arm64 image needs no QEMU for it.
+# Pinned by digest like the Node image; map/toolchain_test.go keeps go.mod in step.
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS map-build
+ARG TARGETOS
+ARG TARGETARCH
+WORKDIR /src
+COPY map/go.mod ./
+COPY map/*.go ./
+COPY map/geo ./geo
+COPY map/asn ./asn
+COPY map/torexit ./torexit
+COPY map/web ./web
+COPY package.json /tmp/package.json
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w -X main.Version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' /tmp/package.json | head -1)" -o /out/peer-map .
+
 FROM node:22-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS builder
 WORKDIR /app
 
@@ -58,6 +76,8 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src ./src
 COPY package.json ./
+# Started by the dashboard itself, on loopback (src/lib/peer-map.js).
+COPY --from=map-build /out/peer-map /app/peer-map
 
 # The stock node:* image already ships a non-root "node" user at uid/gid
 # 1000, matching what Umbrel expects to own ${APP_DATA_DIR}.

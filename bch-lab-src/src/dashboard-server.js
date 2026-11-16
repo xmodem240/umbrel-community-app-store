@@ -25,6 +25,7 @@ const rpc = require('./lib/rpc');
 const queries = require('./lib/queries');
 const peerSync = require('./lib/peer-sync');
 const sibling = require('./lib/sibling');
+const peerMap = require('./lib/peer-map');
 const nodeProfile = require('./lib/node-profile');
 const localPools = require('./lib/local-pools');
 const health = require('./lib/health');
@@ -1073,10 +1074,24 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, refused[0], { error: refused[1] });
         return;
       }
+      // The node's peer list as the node gives it, for the peer map this
+      // process runs beside itself (lib/peer-map.js), in the shape of an RPC
+      // answer. It holds more than the page ever shows, so only this
+      // container may ask.
+      if (pathname === '/api/node/peerinfo' && req.method === 'GET') {
+        if (!peerMap.isLoopback(req.socket.remoteAddress)) return sendJson(res, 404, { error: 'not found' });
+        try {
+          return sendJson(res, 200, { result: await rpc.getPeerInfo(), error: null });
+        } catch (err) {
+          // No address in it: rpc.js words its errors for the page already.
+          return sendJson(res, 200, { result: null, error: { code: -1, message: 'the dashboard could not reach the node' } });
+        }
+      }
       const handled = await router(req, res, pathname, url);
       if (handled === null) sendJson(res, 404, { error: 'not found' });
       return;
     }
+    if (peerMap.proxy(req, res, url)) return;
     serveStatic(req, res, pathname);
   } catch (err) {
     // A malformed request body is the caller's mistake, not ours - answering
@@ -1103,6 +1118,7 @@ function main() {
         try { res.end(); } catch { /* client already gone */ }
       }
       sseClients.clear(); // so a late broadcast cannot write to an ended stream
+      peerMap.stop();
       server.close();
     },
   });
@@ -1138,6 +1154,7 @@ function main() {
 
   server.listen(config.dashboardPort, () => {
     logger.info('dashboard listening', { port: config.dashboardPort });
+    peerMap.start(logger, config.dashboardPort);
   });
 }
 

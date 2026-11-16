@@ -7,7 +7,7 @@ window.name = 'bitcoin-cash-lab';
 // On a phone or tablet Safari loads a named tab in the background and stays where it is, so a tap seemed to do nothing.
 // There the jump stays in the same tab, and Back returns.
 const TOUCH_ONLY = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-const PEER_MAP_TARGET = TOUCH_ONLY ? '_self' : 'peer-map';
+const PEER_MAP_TARGET = '_self'; // the map is a page of this app
 
 // Peer/pool ranking is a slow-moving, historical stat, not a live combat
 // feed - it doesn't need sub-10s freshness, and peerRanking() in particular
@@ -48,7 +48,8 @@ let PEER_MAP_INSTALLED = false;
 const PEER_MAP_PAGE = 'https://github.com/benunskilled/peer-map';
 let PEER_MAP_PORT = 8791; // the store port; a test copy passes its own (peerMapLinkPort)
 function peerMapURL(address) {
-  const base = `${location.protocol}//${location.hostname}:${PEER_MAP_PORT}/`;
+  // The map is a page of this app, under map/ (lib/peer-map.js).
+  const base = 'map/';
   return address ? `${base}?peer=${encodeURIComponent(address)}` : base;
 }
 
@@ -544,11 +545,11 @@ async function refreshStatus() {
   if (siblingLink) {
     // Without Peer Map the same link leads to where it can be had: the
     // header is the one quiet place for it, not a line in the tables.
-    siblingLink.hidden = false;
-    siblingLink.target = PEER_MAP_INSTALLED ? PEER_MAP_TARGET : '_blank';
-    siblingLink.href = PEER_MAP_INSTALLED ? peerMapURL(null) : PEER_MAP_PAGE;
-    if (PEER_MAP_INSTALLED) siblingLink.removeAttribute('title');
-    else siblingLink.title = 'See where your peers are and what software they run';
+    // The map is part of this app; while it is not running there is no link.
+    siblingLink.hidden = !PEER_MAP_INSTALLED;
+    siblingLink.target = '_self';
+    siblingLink.href = peerMapURL(null);
+    siblingLink.title = 'See where your peers are, who hosts them and what software they run';
   }
   // The peer count comes from SQLite and the block height from a Bitcoin
   // BCHN RPC call. Tying them together meant a single RPC hiccup (BCHN

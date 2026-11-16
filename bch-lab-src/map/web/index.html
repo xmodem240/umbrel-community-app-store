@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Peer Map · Bitcoin Cash Lab</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0b0f14">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <!-- Rolls across the page once when a new block lands; see pulseBlock in app.js. -->
+  <div class="block-wave" id="blockWave" aria-hidden="true"></div>
+  <header class="topbar">
+    <h1>Peer Map</h1>
+    <a id="sibling-link" class="sibling-link" hidden target="_self">&#8592; Bitcoin Cash Lab</a>
+    <span class="status-pill" id="status">Loading peers…</span>
+  </header>
+
+  <main>
+    <p class="banner banner-demo" id="demo" hidden>Demo data - this instance runs with <code>PEERMAP_MOCK=1</code> and is not connected to a node.</p>
+    <p class="banner banner-error" id="error" hidden></p>
+    <div class="banner banner-paused" id="paused" hidden>
+      <span>Paused after 30 minutes without activity - your node is not being asked for peers.</span>
+      <button class="btn" id="resume">Resume</button>
+    </div>
+
+    <div class="filters" role="group" aria-label="Show connection types">
+      <button class="chip" data-group="inbound" aria-pressed="true"><span class="swatch"></span>Inbound <b data-count="inbound">0</b></button>
+      <button class="chip" data-group="outbound" aria-pressed="true"><span class="swatch"></span>Outbound <b data-count="outbound">0</b></button>
+      <button class="chip" data-group="manual" aria-pressed="true"><span class="swatch"></span>Manual <b data-count="manual">0</b></button>
+      <span class="place-filter" id="placeFilter" hidden>
+        Showing <b id="placeFilterName"></b>
+        <button class="linkish" id="placeFilterClear" aria-label="Clear location filter">×</button>
+      </span>
+      <!-- Set by clicking an entry in a group's kind line. Sits beside the
+           location filter and works with it: both at once means both. -->
+      <span class="place-filter" id="kindFilter" hidden>
+        Only <b id="kindFilterName"></b>
+        <button class="linkish" id="kindFilterClear" aria-label="Clear kind filter">×</button>
+      </span>
+    </div>
+
+    <!-- One block, in the three roles that must not be confused: who mined
+         it, which of your peers brought it here first, and which pool turned
+         it into fresh work first. 
+
+         With a Stratum race for the block, the summary and the route stay
+         open and only the full pool list folds away. Without one, the card is
+         a single line that opens onto who delivered it: then the summary is
+         the fold's own label and #blockSummary stays hidden. -->
+    <section class="card block-card" id="blockCard" hidden>
+      <div class="block-summary" id="blockSummary" hidden></div>
+      <div class="block-route" id="blockRoute" hidden></div>
+      <div class="block-recon" id="blockRecon" hidden></div>
+      <details class="block-more" id="blockMore">
+        <summary id="blockMoreLabel"></summary>
+        <div class="block-body" id="blockBody"></div>
+      </details>
+    </section>
+
+    <section class="card map-card" id="mapCard">
+      <h2 class="map-head" id="mapHead">Map</h2>
+      <div class="map-wrap" id="mapWrap">
+        <!-- The viewBox is world.json's size (TestMapSizeInHTML), here so the map
+             takes its height before world.json arrives: arriving later, it made
+             the page 400px taller after a reload had put the reader back. -->
+        <svg id="map" viewBox="0 0 1000 438" role="group" aria-label="World map of connected peers">
+          <defs>
+            <!-- One soft glow per group: the markers are a light on the map, not a chart. -->
+            <radialGradient id="glow-manual"><stop offset="0" stop-color="#3987e5" stop-opacity=".9"/><stop offset=".45" stop-color="#3987e5" stop-opacity=".3"/><stop offset="1" stop-color="#3987e5" stop-opacity="0"/></radialGradient>
+            <radialGradient id="glow-inbound"><stop offset="0" stop-color="#9e9a28" stop-opacity=".9"/><stop offset=".45" stop-color="#9e9a28" stop-opacity=".28"/><stop offset="1" stop-color="#9e9a28" stop-opacity="0"/></radialGradient>
+            <radialGradient id="glow-outbound"><stop offset="0" stop-color="#1a9e8f" stop-opacity=".9"/><stop offset=".45" stop-color="#1a9e8f" stop-opacity=".3"/><stop offset="1" stop-color="#1a9e8f" stop-opacity="0"/></radialGradient>
+            <radialGradient id="glow-home"><stop offset="0" stop-color="#f7931a" stop-opacity=".85"/><stop offset="1" stop-color="#f7931a" stop-opacity="0"/></radialGradient>
+          </defs>
+          <g id="countries"></g>
+          <g id="links"></g>
+          <g id="markers"></g>
+          <g id="fx"></g>
+        </svg>
+        <span class="map-level"><span id="mapLevel">Countries</span><span class="map-level-hint" id="mapLevelHint"> · zoom in for regions</span></span>
+        <div class="zoom" role="group" aria-label="Zoom">
+          <button id="zoomIn" aria-label="Zoom in">+</button>
+          <button id="zoomOut" aria-label="Zoom out">−</button>
+          <button id="zoomReset" aria-label="Reset view">⟲</button>
+        </div>
+        <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+      </div>
+
+      <button class="side-tab" id="sideToggle" aria-expanded="false" aria-controls="unplaced">
+        <span class="side-tab-label">Not on the map <b id="unplacedCount">0</b></span>
+      </button>
+      <aside class="unplaced" id="unplaced" hidden>
+        <h2>Not on the map</h2>
+        <p class="hint">Tor, I2P and CJDNS peers have no location. Inbound IPv6 on umbrelOS arrives through docker-proxy, which hides the peer's real address.</p>
+        <table class="mini">
+          <thead><tr><th scope="col">Network</th><th scope="col"><span class="swatch s-inbound"></span>In</th><th scope="col"><span class="swatch s-outbound"></span>Out</th><th scope="col"><span class="swatch s-manual"></span>Man.</th></tr></thead>
+          <tbody id="unplacedBody"></tbody>
+        </table>
+      </aside>
+      <!-- What the colours on the map mean. -->
+      <div class="map-legend">
+        <span><span class="swatch s-inbound"></span>Inbound</span>
+        <span><span class="swatch s-outbound"></span>Outbound</span>
+        <span><span class="swatch s-manual"></span>Manual</span>
+        <span><span class="swatch s-home"></span>Your node</span>
+      </div>
+      <!-- On a phone nothing can be hovered, so the marks the tables use are
+           said here, folded. A wide screen says them on hover. -->
+      <details class="key">
+        <summary>What the marks mean</summary>
+        <ul>
+          <li><b class="hb">⚡</b> May send you new blocks without being asked</li>
+          <li><b class="hb">📡</b> Gets new blocks from you without asking</li>
+          <li class="lab-only"><b class="star">★</b> Delivered the newest block first</li>
+          <li class="lab-only"><b class="addr-txt delivered">green address</b> Has delivered a block first</li>
+          <li><b class="never-mark">⊘</b> Passes no blocks on, e.g. a wallet</li>
+          <li><span class="kind disg">Disguised</span> Probably not the software it says it is</li>
+          <li><span class="kind lion">LinkingLion</span> On 0xB10C's list of spy nodes</li>
+          <li><b>Tor exit</b> Location and operator are the exit's, not the peer's</li>
+        </ul>
+      </details>
+    </section>
+
+    <div class="tables" id="tables" aria-busy="true"><section class="card group-card skeleton-card"><div class="group-head"><h2>Inbound</h2></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div></section><section class="card group-card skeleton-card"><div class="group-head"><h2>Outbound</h2></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div></section><section class="card group-card skeleton-card"><div class="group-head"><h2>Manual</h2></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div><div class="sk-row"><i></i><i></i></div></section></div>
+  </main>
+
+  <footer class="foot">
+    <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP Geolocation by DB-IP</a>
+    · Map data: Natural Earth
+    · <span id="version"></span>
+  </footer>
+</body>
+</html>

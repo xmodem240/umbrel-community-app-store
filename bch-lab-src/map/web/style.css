@@ -1,0 +1,778 @@
+/* Same palette and shapes as the Bitcoin Lab dashboard, so the two apps look
+   like one family. Dark only: umbrelOS is dark, and a page that flips to
+   light with the system setting flashes white inside it. */
+:root {
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --panel: #131a22;
+  --panel-2: #0f151b;
+  --border: #1f2a35;
+  --text: #e6edf3;
+  --muted: #8a99a8;
+  --faint: #5b6876;
+  --accent: #0ac18e;
+  --good: #3fb950;
+  --bad: #f85149;
+
+  --land: #1f2a35;
+  --land-hot: #2c3b4a;
+  --land-edge: #131a22;
+
+  /* Connection types. One set for both apps of this pair: a peer has the same
+     colour in Peer Map and in Bitcoin Lab, because it is the same peer.
+     Validated as a categorical set against --panel: worst pair CVD dE 12.6
+     (protanopia), normal-vision dE 15.1, contrast >= 3:1.
+     Inbound used to be an orange-red, which read as a warning - an inbound peer
+     is not a problem - and left no room for any other meaning in red. The
+     yellow leans green on purpose, to keep its distance from the Bitcoin orange
+     the title and the buttons wear. Nothing here is red: red is kept for the
+     Kind pill of a disguised or LinkingLion peer. */
+  --manual: #3987e5;
+  --inbound: #9e9a28;
+  --outbound: #1a9e8f;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* The header is the same in Bitcoin Lab: title, the other app beside it,
+   status on the right - on a phone the status goes under the title. */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 18px; margin: 0; color: var(--accent); }
+/* The link to the other app in the pair. Quiet on purpose: it is an offer, not
+   a part of this dashboard. Hidden until the server has said whether Bitcoin
+   Lab is installed: then it opens the app or, without it, its GitHub page. */
+.sibling-link { margin-right: auto; padding-left: 14px; font-size: 13px; color: var(--muted); text-decoration: none; }
+.sibling-link:hover { color: var(--text); }
+/* The star in the tables and on the map marks the peer that brought the newest
+   block here. It lasts two minutes. */
+.peers td .star { color: var(--accent); margin-right: 4px; }
+/* On the map the same star sits above the marker that holds the peer, and the
+   ring underneath it picks the marker out of a crowded cluster. */
+.marker.delivered .ring { stroke: var(--accent); stroke-width: 2; }
+.marker .delivered-star { fill: var(--accent); font-size: 13px; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+
+/* ---- one block, all three roles ---- */
+.block-card { padding: 0; }
+.block-summary, .block-more > summary {
+  padding: 12px 16px; display: flex; flex-wrap: wrap;
+  align-items: baseline; gap: 4px 10px; font-size: 14px; color: var(--muted);
+}
+.block-more > summary { cursor: pointer; }
+.block-more > summary::-webkit-details-marker { display: none; }
+/* A drawn chevron, as in Bitcoin Lab: the old 11px glyph read as a dot. */
+.block-more > summary::before {
+  content: ""; flex: none; align-self: center; width: 6px; height: 6px; margin: 0 4px 0 2px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg); transition: transform .15s ease;
+}
+.block-more > summary:hover::before { border-color: var(--text); }
+.block-more[open] > summary::before { transform: translateY(-2px) rotate(45deg); }
+/* Under a route the fold is only the full pool list, so it reads as a small
+   link rather than as the card's headline. */
+.block-more.minor > summary { padding: 0 16px 12px; font-size: 13px; }
+
+/* ---- the route: to scale from the first job, see renderRoute ---- */
+.block-route { padding: 0 16px 10px; }
+.rt { position: relative; height: 128px; margin: 4px 0 2px; }
+.rt-track, .rt-stub { position: absolute; top: 32px; height: 0; border-top: 2px solid var(--land-hot); }
+.rt-stub { border-top-style: dashed; border-top-color: var(--border); }
+.rt-dot {
+  position: absolute; top: 26px; width: 12px; height: 12px; margin-left: -6px;
+  border-radius: 50%; background: var(--text);
+}
+.rt-dot.pool { width: 8px; height: 8px; top: 28px; margin-left: 0; border: 2px solid var(--accent); background: var(--panel); }
+.rt-dot.peer { background: var(--muted); }
+.rt-dot.peer.manual { background: var(--manual); }
+.rt-dot.peer.inbound { background: var(--inbound); }
+.rt-dot.peer.outbound { background: var(--outbound); }
+.rt-dot.own { background: var(--accent); box-shadow: 0 0 0 4px rgba(10,193,142, .22); }
+.rt-dot.tpl { width: 8px; height: 8px; top: 28px; margin-left: -6px; background: var(--panel); border: 2px solid var(--text); }
+.rt-lab.peer.plain b { font-family: inherit; font-size: 14px; }
+.rt-switch { display: inline-flex; gap: 2px; margin: 0 0 10px; padding: 2px; border: 1px solid var(--border); border-radius: 999px; }
+.rt-switch button {
+  border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px;
+  padding: 3px 12px; border-radius: 999px; cursor: pointer;
+}
+.rt-switch button.on { background: var(--land-hot); color: var(--text); }
+.rt-seg {
+  position: absolute; top: 6px; transform: translateX(-50%); white-space: nowrap;
+  font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.rt-lab {
+  position: absolute; top: 46px; transform: translateX(-50%); text-align: center;
+  white-space: nowrap; line-height: 1.35;
+}
+.rt-lab.first { transform: none; text-align: left; }
+.rt-lab b { display: block; max-width: 200px; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 600; color: var(--text); }
+.rt-lab .t { display: block; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+.rt-lab small {
+  display: block; font-size: 12px; color: var(--muted);
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+}
+.rt-lab.first small { margin-right: auto; }
+.rt-lab.pool b, .rt-lab.own b, .rt-lab.own .t { color: var(--accent); }
+.rt-lab.peer b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+/* The route on a phone: the same stops down a line, each stretch between two
+   of them with its time on the right. Three columns - line, name, what - so
+   every name and every time sits flush. */
+.rt-v { list-style: none; margin: 2px 0 12px; padding: 0; font-size: 14px; }
+.rt-v li { position: relative; display: grid; grid-template-columns: 24px 108px minmax(0, 1fr) auto; align-items: baseline; }
+.rt-v li::after { content: ""; position: absolute; left: 7px; top: 0; bottom: 0; border-left: 2px solid var(--faint); }
+/* The miner's lead-in is dashed, as on the wide route: not measured. */
+.rt-v li:first-child::after { top: 12px; border-left-style: dashed; }
+.rt-v li.lead::after { border-left-style: dashed; }
+.rt-v li:last-child::after { bottom: auto; height: 8px; }
+.rt-v li.stop { padding: 3px 0; line-height: 1.35; }
+.rt-v li.stop::before { content: ""; position: absolute; z-index: 1; left: 3px; top: 7px; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; background: var(--text); }
+.rt-v li.stop b { grid-column: 2; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-v li.stop span { grid-column: 3 / 5; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-v li.stop .addr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.rt-v li.pool::before, .rt-v li.win::before { background: var(--panel); border: 2px solid var(--text); }
+.rt-v li.pool::before { border-color: var(--accent); }
+.rt-v li.pool b, .rt-v li.own b { color: var(--accent); }
+.rt-v li.tpl::before { left: 4px; top: 8px; width: 8px; height: 8px; border-radius: 2px; background: var(--panel); border: 2px solid var(--text); }
+.rt-v li.peer::before { background: var(--muted); }
+.rt-v li.peer.manual::before { background: var(--manual); }
+.rt-v li.peer.inbound::before { background: var(--inbound); }
+.rt-v li.peer.outbound::before { background: var(--outbound); }
+.rt-v li.own::before { background: var(--accent); box-shadow: 0 0 0 4px rgba(10,193,142, .22); }
+.rt-v li.gap { padding: 1px 0 2px; font-size: 12px; color: var(--muted); }
+.rt-v li.lead { min-height: 12px; }
+/* A stretch's text may wrap (a long "+1 round trip · 1,234 kB" at 320 px);
+   its time never does. */
+.rt-v li.gap span { grid-column: 2 / 4; padding-right: 10px; }
+.rt-v li.gap .t { white-space: nowrap; }
+.rt-v li.gap .t { grid-column: 4; padding-right: 0; text-align: right; color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+.block-route .note { margin: 0; font-size: 13px; color: var(--muted); }
+.block-recon { padding: 0 16px 10px; }
+.block-recon .rt-switch { margin: 0 8px 0 0; vertical-align: middle; }
+.block-recon .recon-head { font-size: 13px; color: var(--muted); margin-right: 8px; }
+.block-recon .recon-line { margin: 6px 0 0; font-size: 13px; color: var(--text); }
+.block-recon .recon-line small { color: var(--muted); font-size: 13px; }
+.block-card .b-height { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Each part carries its dot in front, inside a 21px lead-in. The parts sit
+   21px to the left of the clipping box, so on every line the first part's dot
+   falls outside it and only the dots between parts show. */
+.block-card .b-line { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.block-card .b-parts { display: flex; flex-wrap: wrap; row-gap: 4px; margin-left: -21px; }
+.block-card .b-part { position: relative; padding-left: 21px; min-width: 0; }
+.block-card .b-part::before { content: "·"; position: absolute; left: 7px; color: var(--border); }
+.block-card .b-unknown { color: var(--accent); }
+.block-card .b-part.b-cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.block-card .b-pool { color: var(--accent); }
+.block-card .b-pool.raw { font-style: italic; }
+.block-body { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 14px; }
+.block-body h3 {
+  margin: 0 0 6px; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); font-weight: 500;
+}
+.block-body table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.block-body td { padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border); }
+/* The first and last columns are as wide as their content; whatever is in the
+   middle - a location, a pool name - takes the rest. */
+.block-body td:first-child, .block-body td:last-child { width: 1%; white-space: nowrap; }
+.block-body tr:last-child td { border-bottom: 0; }
+.block-body .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.block-body .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.block-body .own { color: var(--accent); }
+.block-body .miss { color: var(--muted); }
+@media (max-width: 600px) {
+  /* On a phone the three columns squeezed the place onto two lines: the
+     address takes a line of its own, place and operator share the next. */
+  .block-body table.firsts tr { display: flex; flex-wrap: wrap; column-gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .block-body table.firsts tr:last-child { border-bottom: 0; }
+  .block-body table.firsts td { display: block; width: auto; padding: 0; border: 0; white-space: normal; }
+  .block-body table.firsts td:first-child { flex-basis: 100%; }
+}
+.block-body .note { margin: 0; font-size: 13px; color: var(--muted); }
+
+.status-pill { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+main {
+  padding: 20px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+@media (max-width: 600px) {
+  .topbar { flex-wrap: wrap; gap: 4px 0; padding: 14px 16px; }
+  .status-pill { flex-basis: 100%; font-size: 12px; }
+  main { padding: 16px 16px 32px; }
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.banner { margin: 0; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); }
+.banner-demo { border-color: #5a4312; }
+.banner-demo::before { content: "● "; color: var(--accent); }
+.banner-error { border-color: var(--bad); }
+.banner-error::before { content: "⚠ "; color: var(--bad); }
+.banner-paused { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-color: var(--accent); }
+code { font-size: 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+
+.btn {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); }
+
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 34px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  font: inherit; cursor: pointer;
+}
+.chip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+/* The count in a table head looks like a chip but does nothing when clicked. */
+.chip.count { cursor: default; }
+.chip[aria-pressed="false"] { color: var(--muted); }
+.chip[aria-pressed="false"] .swatch { background: transparent; box-shadow: inset 0 0 0 2px var(--muted); }
+.chip:focus-visible, .zoom button:focus-visible, .side-tab:focus-visible, .btn:focus-visible,
+th button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.chip[data-group="manual"] .swatch, .s-manual { background: var(--manual); }
+.chip[data-group="inbound"] .swatch, .s-inbound { background: var(--inbound); }
+.chip[data-group="outbound"] .swatch, .s-outbound { background: var(--outbound); }
+
+.place-filter { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); margin-left: 4px; }
+.place-filter b { color: var(--text); font-weight: 600; }
+td .about { font-size: 12px; color: var(--muted); white-space: pre-line; }
+.linkish { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 4px 6px; }
+.linkish:hover { color: var(--text); }
+
+/* ---- map card: map | side tab | (optional) panel ---- */
+.map-card { display: flex; flex-wrap: wrap; overflow: hidden; }
+.map-wrap { position: relative; flex: 1 1 auto; min-width: 0; touch-action: none; }
+#map { display: block; width: 100%; height: auto; cursor: grab; user-select: none; }
+#map.dragging { cursor: grabbing; }
+.land { fill: var(--land); stroke: var(--land-edge); stroke-width: 0.6; }
+.land.hot { fill: var(--land-hot); }
+/* World view: a dot grid instead of filled countries (see buildDots). The
+   shapes fade in as the dots fade out on the way to regions (--dots, set in
+   applyView). Without the grid (no canvas) the shapes simply stay. */
+#map.dotted .land { fill-opacity: calc(1 - var(--dots, 1)); stroke-opacity: calc(1 - var(--dots, 1)); }
+.dots { opacity: var(--dots, 1); pointer-events: none; }
+.dots path { fill: none; stroke-linecap: round; stroke-width: 1.15; }
+#dotsAll { stroke: #2b3a49; }
+#dotsHot { stroke: #4f6e8c; stroke-width: 1.35; }
+/* Arcs from every place to this node; the manual ones a little brighter. */
+.link { fill: none; stroke-width: 0.7; stroke-opacity: 0.16; stroke-linecap: round; pointer-events: none; }
+.l-manual { stroke: var(--manual); stroke-opacity: 0.5; stroke-width: 1; }
+.l-inbound { stroke: var(--inbound); stroke-opacity: 0.08; }
+.l-outbound { stroke: var(--outbound); stroke-opacity: 0.3; }
+.home-mark { pointer-events: none; }
+.home-dot { fill: var(--accent); stroke: var(--bg); stroke-width: 1.2; }
+.fx-head { fill: #ffd29a; }
+.fx-trail { fill: none; stroke: var(--accent); stroke-linecap: round; filter: drop-shadow(0 0 3px var(--accent)); }
+.fx-ring { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.marker { cursor: pointer; }
+.marker .ring { fill: none; stroke: transparent; }
+/* Inbound-only places stay in the background, behind your own and outbound. */
+.marker.back .glow { opacity: 0.45; }
+.marker.back .core, .marker.back .seg { opacity: 0.6; }
+.marker.back:is(:hover, :focus-visible, .selected) :is(.glow, .core, .seg) { opacity: 1; }
+.marker .seg { fill: none; stroke-width: 1.6; stroke-linecap: round; }
+.seg-manual { stroke: var(--manual); }
+.seg-inbound { stroke: var(--inbound); }
+.seg-outbound { stroke: var(--outbound); }
+.core.c-manual { fill: var(--manual); }
+.core.c-inbound { fill: var(--inbound); }
+.core.c-outbound { fill: var(--outbound); }
+.marker .sel { fill: none; stroke: transparent; }
+.marker.selected .sel { stroke: var(--text); stroke-width: 1.5; }
+.marker text { fill: var(--text); font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; pointer-events: none; }
+
+.map-level {
+  position: absolute; left: 12px; bottom: 12px; font-size: 12px; color: var(--muted);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; pointer-events: none;
+}
+.zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+.zoom button {
+  width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); font: 16px/1 system-ui, sans-serif; cursor: pointer;
+}
+.zoom button:hover { border-color: var(--accent); }
+@media (max-width: 600px) {
+  /* On a phone the world is small and the buttons covered Asia and Australia:
+     the box grows by a strip under the map, and the buttons sit in it, in a row. */
+  .map-wrap { padding-bottom: 36px; }
+  .zoom { right: 6px; bottom: 4px; gap: 4px; flex-direction: row; }
+  .zoom button { width: 28px; height: 28px; }
+  .map-level { left: 6px; bottom: 8px; font-size: 11px; }
+  .map-level-hint { display: none; }
+}
+
+.tooltip {
+  position: absolute; pointer-events: none; z-index: 2; min-width: 170px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.tooltip h3 { margin: 0; font-size: 13px; }
+.tooltip .sub { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.tooltip .row { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.tooltip .row b { margin-left: auto; color: var(--text); font-variant-numeric: tabular-nums; }
+
+.side-tab {
+  flex: none; width: 34px; border: 0; border-left: 1px solid var(--border);
+  background: var(--panel-2); color: var(--muted); cursor: pointer; padding: 12px 0; font: inherit; font-size: 12px;
+}
+.side-tab:hover { color: var(--text); }
+.side-tab-label { writing-mode: vertical-rl; display: inline-flex; align-items: center; gap: 6px; }
+.side-tab-label::after { content: "◂"; }
+.side-tab[aria-expanded="true"] .side-tab-label::after { content: "▸"; }
+.side-tab b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.unplaced { flex: none; width: 290px; border-left: 1px solid var(--border); padding: 16px; }
+.unplaced h2 { font-size: 15px; margin: 0 0 6px; }
+.hint { color: var(--muted); margin: 0 0 12px; font-size: 12px; }
+.mini { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+.mini th, .mini td { padding: 6px 4px; text-align: right; border-bottom: 1px solid var(--border); }
+.mini th:first-child, .mini td:first-child { text-align: left; }
+.mini th { font-weight: 500; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.mini .swatch { width: 8px; height: 8px; margin-right: 4px; }
+
+@media (max-width: 860px) {
+  /* Stacked, the map takes the full width and the height that goes with it.
+     Still wrapping, the column was sized by the map's content, and the
+     browser took a map of no width yet as 300 px (131 high): in Chrome the
+     box stayed that low and the map ran over the legend, in Safari the map
+     itself shrank to 300 px, now one, now the other as the map redrew. */
+  .map-card { flex-direction: column; flex-wrap: nowrap; }
+  .map-wrap { flex: none; width: 100%; }
+  .side-tab { width: auto; border-left: 0; border-top: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+  .side-tab-label { writing-mode: horizontal-tb; }
+  .side-tab-label::after { content: "▾"; }
+  .side-tab[aria-expanded="true"] .side-tab-label::after { content: "▴"; }
+  .unplaced { width: auto; border-left: 0; border-top: 1px solid var(--border); }
+}
+
+/* ---- tables: one card per group; inbound shows its top ten (see renderTables) ---- */
+.tables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.group-card { padding: 14px 0 6px; }
+.group-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 0 20px; }
+.group-head h2 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.group-card > .scroll, .group-card > .empty { margin-top: 12px; }
+.group-card > .more {
+  all: unset; cursor: pointer; display: inline-block; margin: 10px 20px 8px; color: var(--muted); font-size: 13px;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.group-card > .more:hover { color: var(--text); }
+.group-card > .more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+.scroll { overflow-x: auto; }
+table.peers { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+/* The three groups share their column widths (alignColumns in app.js): each
+   table is measured at its natural width, then laid out fixed so the same
+   widths land in the same places. */
+table.peers.measure { width: auto; }
+table.peers.aligned { table-layout: fixed; }
+.peers.aligned td { overflow: hidden; text-overflow: ellipsis; }
+/* Laid out, the kind's line may use the whole column; measured, it keeps
+   its cap, so one long line does not cost every table a column. */
+.peers.aligned small.ua { max-width: none; }
+.peers th, .peers td { padding: 9px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
+.peers tbody tr:not(.focus):not(.delivered-now):hover td { background: #17202a; }
+.peers th:first-child, .peers td:first-child { padding-left: 20px; }
+.peers th:last-child, .peers td:last-child { padding-right: 20px; }
+.peers tbody tr:last-child td { border-bottom: 0; }
+.peers th { font-weight: 500; color: var(--faint); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.peers th button { all: unset; cursor: pointer; }
+/* After the reset above, which took the focus ring with it. */
+.peers th button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.peers th[aria-sort="ascending"] button::after { content: " ↑"; }
+.peers th[aria-sort="descending"] button::after { content: " ↓"; }
+.peers .num { text-align: right; }
+.peers .dim { color: var(--muted); }
+/* The address doubles as the way over to Bitcoin Lab; it should read as a link
+   without turning the table into a wall of blue. */
+.peer-jump { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border); }
+.peer-jump:hover { color: var(--accent); text-decoration-color: var(--accent); }
+/* Software that passes no blocks on: the row in muted text and a quiet ⊘ pill rather than a colour -
+   every hue in this window already means a connection type, and a fourth meaning on the same axis is one a
+   colour-blind reader cannot separate. It is not a fault either; a wallet is doing what a wallet does. */
+.peers tr.weak td { color: var(--muted); }
+/* A peer that has brought a block: its address in green, the same as in Bitcoin Lab. Only the address - whole green
+   rows were a lot of colour for one bit. The orange of the newest block's deliverer stays a row. */
+.peers tr.delivered-ever .addr-txt { color: #56d364; }
+/* The newest block's deliverer, while its star is up - the same two minutes. */
+.peers tr.delivered-now td { background: rgba(10,193,142,.13); }
+.peers tr.focus td { background: rgba(10,193,142,.10); }
+.peers tr.focus td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* A table too wide for its card: each row becomes a small card, the address
+   on top, the other values wrapping below it. Nothing scrolls sideways. The
+   labels are only for values that do not explain themselves. */
+/* A tight table drops columns before it turns into cards (fitTables). The
+   doubled class outranks the card rules, which show every cell. */
+.scroll.scroll[data-drops="1"] .k-conntime,
+.scroll.scroll[data-drops="2"] .k-conntime, .scroll.scroll[data-drops="2"] .k-ping,
+.scroll.scroll[data-drops="3"] .k-conntime, .scroll.scroll[data-drops="3"] .k-ping, .scroll.scroll[data-drops="3"] .k-net,
+.scroll.scroll[data-drops="4"] .k-conntime, .scroll.scroll[data-drops="4"] .k-ping, .scroll.scroll[data-drops="4"] .k-net,
+.scroll.scroll[data-drops="4"] .k-operator { display: none; }
+.scroll.cards { overflow-x: visible; }
+.scroll.cards table, .scroll.cards tbody { display: block; }
+.scroll.cards thead { display: none; }
+.cards.cards table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 14px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.cards.cards table tr:last-child { border-bottom: 0; }
+.cards.cards table tr td { display: block; padding: 0; border: 0; max-width: 100%; min-width: 0; background: none; }
+.cards.cards table tr td.k-kind .ua { white-space: normal; }
+.cards.cards table tr td.k-kind .about { white-space: pre-line; }
+.cards.cards table tr td.k-ping::before,
+.cards.cards table tr td.k-conntime::before {
+  content: attr(data-label); margin-right: 5px;
+  color: var(--muted); font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+}
+.cards.cards tr.delivered-now { background: rgba(10,193,142,.13); }
+.cards.cards tr.focus { background: rgba(10,193,142,.10); box-shadow: inset 3px 0 0 var(--accent); }
+.cards.cards tr.focus td:first-child { box-shadow: none; }
+.empty { color: var(--muted); margin: 0 20px 8px; }
+/* The mix of peer kinds under a group heading: a summary, not a heading of
+   its own, so it stays quiet enough to skip over. */
+.kinds { color: var(--muted); font-size: 12px; margin: 6px 20px 0; }
+
+.foot { color: var(--muted); font-size: 12px; max-width: 1400px; margin: 0 auto; padding: 0 24px 24px; }
+.foot a { color: var(--muted); }
+
+/* ---- the wave: rolls across the page once when a new block lands ---- */
+/* The same wave as Bitcoin Lab's: slanted, in its orange, from just off the
+   left edge to just off the right at an even pace, fading once it is out.
+   It was upright and faint here, and eased, so it faded before the right
+   half (05.11.2026). */
+.block-wave { position: fixed; inset: 0; pointer-events: none; z-index: 20; opacity: 0;
+  background: linear-gradient(100deg, transparent 0%, transparent 38%, rgba(10,193,142,.55) 48%, rgba(10,193,142,.85) 50%, rgba(10,193,142,.55) 52%, transparent 62%, transparent 100%);
+  background-size: 300% 100%; background-position: 105% 0; }
+.block-wave.run { animation: block-wave-roll 1.4s linear; }
+@keyframes block-wave-roll { 0% { opacity: 1; background-position: 105% 0; } 92% { opacity: 1; } 100% { opacity: 0; background-position: -5% 0; } }
+@media (prefers-reduced-motion: reduce) { .block-wave.run { animation: none; } }
+
+/* ---- V2 design ---- */
+.map-legend { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.map-legend .swatch { width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; }
+.s-home { background: var(--accent); }
+
+/* Group heading: the name, then the count and the kinds as chips. */
+.kinds.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+/* Under the name in every group, also where a short list would fit beside it
+   (Manual). Folded, the count alone stands beside the name. */
+.group-card:not(.folded) .group-head > .kinds.chips { flex-basis: 100%; }
+.chips .chip { font-size: 12px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; line-height: 1.5; }
+.chips .chip i { font-style: normal; color: var(--text); font-weight: 600; margin-right: 3px; }
+.kinds.chips .kind-pick { cursor: pointer; font: inherit; font-size: 12px; }
+.kinds.chips .kind-pick:hover { color: var(--text); border-color: #33475b; }
+.kinds.chips .kind-pick.on { color: var(--text); border-color: var(--accent); }
+/* The pools under "Pool node": a second line of chips, one step in. */
+/* One level under the kinds: named, and lighter than the kind chips above. */
+.kinds.chips.pool-picks { margin: 8px 20px 0 44px; align-items: center; }
+/* One level down sits further right, and on one line until "+ n more" is tapped. */
+.kinds.chips.pool-picks.one-line { flex-wrap: nowrap; overflow: hidden; }
+.kinds.chips.pool-picks.one-line > * { flex: none; }
+.pool-picks .picks-label { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.kinds.chips.pool-picks .kind-pick { background: transparent; font-size: 11.5px; padding: 1px 8px; }
+.ua .pool-name { color: var(--text); }
+
+/* Rows: two lines each. */
+.peers td { vertical-align: middle; }
+.peers td.peer, .peers td.op { max-width: 280px; overflow: visible; }
+.peers td.peer { max-width: 360px; }
+.who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.who .flag { font-size: 15px; line-height: 1; margin: 0 7px 0 0; vertical-align: -1px; }
+.who-text { min-width: 0; }
+.who b, .op-name { display: block; font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.op-name { font-weight: 400; max-width: 230px; }
+.peers small { display: block; color: var(--muted); font-size: 12px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.peers small.sub { color: var(--faint); }
+/* A Tor exit changes what the row means; it should not sit as faint as the AS number. */
+.peers .tor-exit { color: var(--text); }
+/* Place and address on one line: room for "United States" and a full IPv4
+   address with its port, taken from Kind's spare room - Kind still gets
+   whatever is left over. */
+.peers td.peer small.sub { max-width: 320px; }
+.addr-txt { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--faint); }
+a.addr-txt:hover { color: var(--accent); }
+/* The pill hangs left by its own padding, so its words start where the line under it does. */
+.peers .kind { margin-left: -9px; display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #1a2430; color: var(--text); }
+.peers .kind.first { background: rgba(31,191,171,.12); color: #7fe3d6; }
+.peers .kind.disg, .peers .kind.lion { background: rgba(248,81,73,.12); color: #e5534b; }
+/* On an orange or focused row, and on hover, the see-through red would mix into another colour; laid over the
+   panel colour it stays the same red as on a plain row. */
+.peers tr:is(.delivered-ever, .delivered-now, .focus) .kind:is(.disg, .lion) { background: linear-gradient(rgba(248,81,73,.12), rgba(248,81,73,.12)), var(--panel); }
+.peers .kind.never { margin-left: -7px; font-size: 11px; padding: 0 6px; border: 1px solid var(--border); background: #161d26; color: var(--muted); }
+.peers .kind .ico { font-size: 11px; opacity: .85; }
+/* Compact-block directions sit beside the kind, as quiet marks like in Lab. */
+.peers .kind-head { display: inline-grid; grid-template-columns: 32px minmax(0, auto); align-items: center; gap: 6px; max-width: calc(100% + 9px); margin-left: -9px; vertical-align: bottom; }
+.peers .hb-marks { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.peers .kind-head > .kind { margin-left: 0; min-width: 0; }
+.peers .hb { flex: none; font-size: 13px; line-height: 1; cursor: help; }
+/* The grey lines under the pill start where the pill does, past the marks' slot (32px + 6px gap). */
+.peers td.k-kind > small, .peers td.k-kind > .about { padding-left: 38px; }
+.peers td.k-kind > small.ua { max-width: 318px; }
+.peers small.ua { max-width: 280px; margin-top: 2px; font-family: inherit; word-break: normal; color: var(--muted); }
+/* The software a peer names tells peers apart: as bright as the operator. */
+.peers .net { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; margin-right: 4px; }
+/* The kind of outbound connection wears the outbound colour, as in Bitcoin Lab.
+   On a line of its own: only outbound peers have one, and beside the other
+   two tags it set Net's width for all three tables - empty space in two. */
+.peers .net.type { color: var(--outbound); background: rgba(26,158,143,.15); border-color: transparent; display: block; width: max-content; margin-top: 3px; }
+.peers tr.weak .who b { color: var(--muted); font-weight: 500; }
+
+/* Cards (a phone): the peer on top with its ping beside it on the right,
+   the kind and the software below - every card the same three-line shape. */
+.cards.cards table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start; }
+.cards.cards table tr td.k-peer { grid-column: 1; grid-row: 1; }
+.cards.cards table tr td.k-ping { grid-column: 2; grid-row: 1; text-align: right; white-space: nowrap; }
+.cards.cards table tr td.k-ping::before { display: block; margin: 0 0 2px; }
+.cards.cards table tr td.k-kind,
+.cards.cards table tr td.k-operator,
+.cards.cards table tr td.k-net,
+.cards.cards table tr td.k-conntime { grid-column: 1 / -1; }
+/* On a phone a long operator name or a Tor/I2P address ends in "…" rather
+   than pushing the page sideways. The AS number beside the name stays whole. */
+.cards.cards table tr td.k-operator { flex: 1 1 100%; display: flex; align-items: baseline; }
+.cards.cards table tr td.k-operator .op-name { display: block; flex: 0 1 auto; min-width: 0; max-width: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cards.cards table tr td.k-operator .sub { flex: 0 0 auto; margin-left: 6px; white-space: nowrap; }
+.cards.cards table tr td.k-peer .who, .cards.cards table tr td.k-peer .who-text { min-width: 0; max-width: 100%; }
+.cards.cards table tr td.k-peer small.sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Phone cards: the kind pill takes the place of the ping, beside the place,
+   so a card is one row shorter. */
+.cards.cards table tr td.k-ping { display: none; }
+.cards.cards table tr td.k-kind { display: contents; }
+/* The pill lies over the place line only: country and address below it keep
+   the whole width, and the place name gives way to the pill. */
+.cards.cards table tr td.k-peer { grid-column: 1 / -1; }
+.cards.cards table tr td.k-peer .who b { padding-right: var(--kind-space, 132px); max-width: none; }
+.cards.cards table tr td.k-kind > .kind-head { grid-column: 2; grid-row: 1; align-self: start; justify-self: end; margin-left: 0; max-width: 200px; position: relative; z-index: 1; }
+.cards.cards table tr td.k-kind .kind { max-width: 150px; }
+/* On a card the marks need no fixed slot: an empty one would only take room from the place name. */
+.cards.cards table tr td.k-kind .kind-head { display: inline-flex; }
+.cards.cards table tr td.k-kind .hb-marks:empty { display: none; }
+.cards.cards table tr td.k-kind > small, .cards.cards table tr td.k-kind > .about { grid-column: 1 / -1; padding-left: var(--card-indent); }
+.cards.cards table tr { --card-indent: 39px; }
+.cards.cards table tr td.k-peer .who .flag { display: inline-block; width: 22px; margin-right: 7px; text-align: center; }
+
+/* A node catching up from this one: the arrow turns slowly, like the block
+   wave it is quiet, and stands still when motion is reduced. */
+.syncing { color: #7fe3d6; cursor: help; }
+.sync-ico { display: inline-block; animation: sync-spin 2s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-ico { animation: none; } }
+.chip.count.syncing, .kinds .chip.syncing { color: #7fe3d6; cursor: help; }
+.chip.syncing .sync-ico { color: #7fe3d6; }
+button.chip.syncing { cursor: pointer; }
+
+/* A peer opens with everything known of it on a tap or a click: a row of its
+   own under the peer, as wide as the table. Its content is 0 wide and as wide as
+   the cell, so it never widens a column. */
+.peers tbody tr:not(.detail-row) { cursor: pointer; }
+.peers tr.open td { background: rgba(255,255,255,.03); }
+.peers tr.detail-row td { padding: 0 16px 14px; border-top: 0; background: rgba(255,255,255,.03); white-space: normal; }
+.pd { width: 0; min-width: 100%; box-sizing: border-box; display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 12px; cursor: default; }
+.pd-block { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; min-width: 0; font-size: 13px; line-height: 1.45; }
+.pd-block h4 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.pd-about { margin: 0 0 6px; color: var(--text); }
+/* Claims, Probably, Also: the tag on the left, the text wrapping beside it,
+   in the same column as the reasons of the flags below. */
+.pd-about.tagged { display: grid; grid-template-columns: 92px 1fr; align-items: baseline; }
+.pd-tag { display: inline-block; min-width: 62px; font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+.pd-tag.probably { color: var(--accent); }
+/* The word on the left, its reason beside it: a second line starts under the
+   reason, not under the word, and the reasons of all rows start in one column
+   (a longer word moves only its own reason). */
+.pd-flag-row { display: grid; grid-template-columns: minmax(92px, max-content) 1fr; align-items: baseline; margin: 0 0 7px; color: var(--muted); }
+.pd-flag-row .pd-flag { justify-self: start; }
+/* Under "never first" when Bitcoin Lab is not installed: where to find out more. */
+.pd-flag-row .pd-more { grid-column: 2; margin-top: 3px; }
+.pd-flag-row .pd-more a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+.pd-flag-row .pd-more a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.pd-flag { display: inline-block; margin-right: 6px; padding: 1px 9px; border-radius: 999px; border: 1px solid var(--border); background: #161d26; color: var(--text); font-size: 12px; white-space: nowrap; }
+.pd-flag.sync { color: #7fe3d6; border-color: rgba(31,191,171,.45); background: rgba(31,191,171,.10); }
+.pd-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 10px; margin-bottom: 12px; font-size: 12px; }
+.pd-fact { display: contents; }
+.pd-fact > span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.pd-label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+.pd-small { font-size: 12px; color: var(--muted); }
+.pd-traffic { display: flex; flex-direction: column; gap: 6px; }
+.pd-bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: #141b23; gap: 2px; }
+.pd-sent { background: var(--accent); min-width: 3px; }
+.pd-got { background: #1fbfab; min-width: 3px; }
+.pd-ua { margin: 0 0 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--text); overflow-wrap: anywhere; }
+.pd-svc { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.pd-chip { padding: 1px 8px; border-radius: 6px; background: #1a2430; color: var(--muted); font-size: 11.5px; letter-spacing: .02em; }
+.pd-chip.none { color: var(--faint); font-style: italic; }
+.pd-where { margin: 6px 0 0; color: var(--muted); }
+.pd.pd-two { grid-template-columns: 1fr 1fr; }
+@media (max-width: 900px) { .pd { grid-template-columns: 1fr 1fr; } .pd-block:first-child { grid-column: 1 / -1; } }
+@media (max-width: 900px) { .pd.pd-two .pd-block:first-child { grid-column: auto; } }
+@media (max-width: 600px) { .pd { grid-template-columns: 1fr; } }
+/* A phone card: the detail is a block under the card's grid, not a cell in it. */
+.cards.cards table tr.detail-row { display: block; border-top: 0; padding: 0; }
+.cards.cards table tr.detail-row td { display: block; padding: 0 12px 14px; }
+.cards.cards table tr.detail-row td::before { content: none; }
+/* The arrow that says a peer opens; it turns down while it is open. */
+.who { position: relative; }
+.chev { background: none; border: 0; padding: 0; font-family: inherit; position: absolute; left: -15px; top: 50%; margin-top: -9px; width: 12px; text-align: center; font-size: 17px; line-height: 18px; color: var(--faint); transition: transform .15s ease; pointer-events: none; }
+.peers tr:hover .chev, .peers tr.open .chev { color: var(--muted); }
+.peers tr.open .chev { transform: rotate(90deg); }
+.chev:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+/* The way over to Bitcoin Lab from an opened peer: a button a finger can hit. */
+.pd-lab { display: inline-block; margin-top: 10px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: #161d26; color: var(--text); font-size: 13px; text-decoration: none; }
+.pd-lab:hover { border-color: var(--accent); }
+td .about.short { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+td .about.clip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+
+/* --- Feel (28.10.2026) --- */
+/* Small links get a finger-sized target without looking any bigger. */
+.sibling-link, .group-card > .more { position: relative; }
+.sibling-link::after, .group-card > .more::after { content: ""; position: absolute; inset: -12px -8px; }
+/* Chips change state softly. */
+.chip { transition: border-color .12s ease, color .12s ease, background-color .12s ease; }
+/* A panel opened by a tap fades in; one redrawn by a refresh does not. */
+/* A peer that has just connected lights up once. */
+tr.arrived > td { animation: arrived 2.4s ease-out; }
+/* As a card the row is one box: it lights up whole. */
+.cards tr.arrived { animation: arrived 2.4s ease-out; }
+.cards tr.arrived > td { animation: none; }
+@keyframes arrived { from { background-color: rgba(10,193,142, .16); } }
+/* Scrolling back up on a phone: the sections, a tap away. */
+.jump-bar { position: fixed; z-index: 30; left: 50%; top: 8px; transform: translate(-50%, -64px); display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(17, 24, 32, .92); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); transition: transform .2s ease; max-width: calc(100vw - 16px); }
+.jump-bar.shown { transform: translate(-50%, 0); }
+.jump-bar button { font: inherit; font-size: 13px; color: var(--text); background: none; border: 0; padding: 8px 11px; border-radius: 999px; white-space: nowrap; }
+.jump-bar button:active { background: var(--panel-2); }
+@media (prefers-reduced-motion: reduce) {
+  .chip, .jump-bar { transition: none; }
+  tr.arrived, tr.arrived > td { animation: none; }
+}
+/* With a mouse: the row's place on the map lights up. */
+.marker.hover .sel { stroke: var(--accent); stroke-width: 2; }
+.marker.hover .glow { opacity: 1; }
+/* A row reached with the arrow keys. */
+#tables tr[data-anchor]:focus { outline: none; }
+#tables tr[data-anchor]:focus-visible > td { background: rgba(10,193,142, .07); }
+#tables tr[data-anchor]:focus-visible > td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+/* Column headings stay in view over a long table (not as cards). */
+@media (min-width: 601px) {
+  .scroll:not(.cards) { overflow-x: clip; }
+  .peers thead th { position: sticky; top: 0; z-index: 3; background: var(--panel); box-shadow: 0 1px 0 var(--border); }
+}
+/* With a mouse the sections wait in the bottom right corner. */
+.jump-bar.corner { left: auto; right: 16px; top: auto; bottom: 16px; transform: translateY(80px); }
+.jump-bar.corner.shown { transform: none; }
+@media (prefers-reduced-motion: reduce) { .jump-bar.corner { transition: none; } }
+
+/* Before the first answer, grey rows stand where the peers will be: the page
+   does not grow by a screen at once when they arrive, and it reads as
+   loading rather than as empty. */
+.skeleton-card .group-head h2 { color: var(--muted); }
+.sk-row { padding: 14px 20px; border-top: 1px solid var(--border); }
+.sk-row i { display: block; height: 10px; border-radius: 5px; background: var(--border); opacity: .55; animation: skeleton 1.4s ease-in-out infinite; }
+.sk-row i + i { width: 55%; margin-top: 8px; }
+.skeleton-card .sk-row:first-of-type { margin-top: 12px; }
+@keyframes skeleton { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .sk-row i { animation: none; } }
+
+/* The dot in front of the status line: beats on fresh numbers, grey while
+   paused or when the backend did not answer. */
+.live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: #3fb950; vertical-align: 1px; }
+.live-dot.stale { background: var(--muted); }
+.live-dot.beat { animation: beat .9s ease-out; }
+@keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(63, 185, 80, .7); } 100% { box-shadow: 0 0 0 7px rgba(63, 185, 80, 0); } }
+@media (prefers-reduced-motion: reduce) { .live-dot.beat { animation: none; } }
+
+/* A phone card: place, address and pill, the same height for every peer.
+   What Core saw is in the panel there (28.10.2026). */
+.cards.cards table tr td.k-kind small.ua { display: none; }
+/* A filtered card's one line (cardLine in app.js), on a card only: the wide
+   list has its grey line and the description, a card this instead. */
+/* The kind cell's grey line (cardLine): on a wide table always, one line
+   under the pill; on a phone card only with a filter on. */
+.peers small.card-line { display: block; max-width: 318px; margin-top: 2px; padding-left: 38px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cards.cards table tr td.k-kind > small.card-line.unfiltered { display: none; }
+.cards.cards table tr td.k-kind > small.card-line { display: block; max-width: none; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cards.cards table tr td.k-kind > .about { display: none; }
+
+/* Every card folds to its title on a tap and stays so on this device; open
+   unless the reader closed it (28.10.2026). The chevron is Storage's in the
+   Lab: down while open, right while folded. */
+.fold-title { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.fold-title::before {
+  content: ""; flex: none; width: 6px; height: 6px; margin: 0 2px 0 1px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg); transition: transform .15s ease;
+}
+.folded .fold-title::before { transform: rotate(-45deg); }
+.fold-title:hover::before { border-color: var(--text); }
+.fold-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.group-card.folded { padding-bottom: 14px; }
+.group-card.folded > :not(.group-head),
+.group-card.folded .group-head > :not(h2, .chips),
+.group-card.folded .chips > :not(.count) { display: none; }
+.map-head { flex: 1 1 100%; margin: 0; padding: 12px 16px; font-size: 15px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
+.map-card.folded > :not(.map-head) { display: none; }
+.map-card.folded .map-head { border-bottom: 0; }
+.block-card.folded.has-route > :not(.block-summary) { display: none; }
+
+/* The open inbound list keeps its name and the way back at the top. */
+.stick { position: sticky; top: 0; z-index: 6; height: 0; }
+.stick > div {
+  position: absolute; left: -1px; right: -1px; top: 0; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px 8px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 0 0 10px 10px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .35); font-size: 15px; font-weight: 600;
+  opacity: 0; pointer-events: none; transition: opacity .15s, visibility .15s;
+  /* Hidden is out of the tab order too, not only invisible. */
+  visibility: hidden;
+}
+.stick > div .swatch { margin-right: 8px; }
+.stick > div .btn { margin-left: auto; }
+.stick.on > div { opacity: 1; pointer-events: auto; visibility: visible; }
+/* A soft edge under the bar, so a row passing beneath fades out instead of
+   showing half a line. */
+.stick > div::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 20px; background: linear-gradient(var(--panel) 35%, transparent); pointer-events: none; }
+
+/* A small byte table, independent of the peer list's phone-card layout. */
+.pd-traffic-types { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px 10px; font-size: 12px; }
+.pd-traffic-group, .pd-traffic-row { display: contents; }
+.pd-traffic-row > span { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pd-traffic-row > span:first-child { text-align: left; white-space: normal; }
+.pd-traffic-heading { color: var(--muted); }
+
+/* What the marks mean - phone only, folded; a wide screen says it on hover. */
+.key { display: none; flex: 1 1 100%; border-top: 1px solid var(--border); padding: 10px 16px; color: var(--muted); font-size: 12px; }
+.key summary { cursor: pointer; }
+.key ul { list-style: none; margin: 8px 0 2px; padding: 0; display: grid; gap: 7px; }
+.key li { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 10px; }
+.key li[hidden] { display: none; }
+.key li > :first-child { justify-self: start; font-weight: 400; }
+.key .hb { font-size: 13px; }
+.key .star { color: var(--accent); }
+.key .never-mark { color: var(--muted); }
+.key .addr-txt.delivered { color: #56d364; }
+.key b { color: var(--text); font-weight: 600; }
+.key .kind { display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #1a2430; color: var(--text); white-space: nowrap; }
+.key .kind.disg, .key .kind.lion { background: rgba(248,81,73,.12); color: #e5534b; }
+@media (max-width: 600px) { .key { display: block; } }

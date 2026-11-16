@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0
+
+Upstream retired Bitcoin Lab and Peer Map in favour of one app, Peer Lab. This release brings its other half
+into Bitcoin Cash Lab: **the peer map**.
+
+- **Peer Map**, a new page (link in the header, and on every peer's address): a world map of your peers, down
+  to regions; who hosts each one (the operator of its network), so peers in three countries at one hosting
+  company show as what they are; what software each runs; Tor exits; and the route of the newest block, with
+  the peer that brought it. Click a region or an operator to filter. Everything is looked up in tables built
+  into the app: no peer address is sent to any outside service.
+- The map is upstream's Peer Map 2.8.0, adapted to Bitcoin Cash: Bitcoin Cash Node, bchd, BCH Unlimited,
+  Flowee, Knuth and Bitcoin Verde are nodes; Bitcoin software (Core, Knots), eCash and Bitcoin SV are "another
+  chain". Its Bitcoin-only checks are off: the "disguised as Bitcoin Core" tests, Knots' fork bits and the
+  addresses of Bitcoin pools' nodes.
+- It runs inside the dashboard, uses the node chosen on the Node card, and is read-only. No new container and
+  no new port: how Umbrel starts the app is unchanged.
+
+Not taken over from Peer Lab: Slot Fill (needs Bitcoin Core's `getrawaddrman` and the segwit bit, see 0.6.1);
+this app keeps its rotation, which promotes the peers that bring blocks first, and your data.
+
 ## 0.6.1
 
 From upstream Bitcoin Lab 2.6.0, the parts that fit Bitcoin Cash:
