@@ -75,6 +75,7 @@ MAX_MODEL_LEN = 48
 # port and are rendered on the dashboard, so they are reduced to a safe charset.
 _LABEL_BAD = re.compile(r"[^A-Za-z0-9._\-]")
 _HEX8 = re.compile(r"[0-9a-fA-F]{8}")   # ntime / nonce: exactly 8 hex digits
+_HEX_MASK = re.compile(r"[0-9a-fA-F]{1,8}")  # a miner's version-rolling mask
 
 logging.basicConfig(
     level=logging.INFO,
@@ -256,6 +257,20 @@ def monitor_name(user_agent):
     return None
 
 
+def negotiate_version_mask(ext_params):
+    """BIP310: the mask granted is the pool's mask ANDed with the miner's.
+
+    `ext_params` is the second mining.configure parameter. A miner that sends
+    no (or an unreadable) "version-rolling.mask" is offered the pool's mask,
+    as before. Returns the granted mask as an int; 0 means no common bit.
+    """
+    server = int(VERSION_ROLLING_MASK, 16)
+    raw = ext_params.get("version-rolling.mask") if isinstance(ext_params, dict) else None
+    if not (isinstance(raw, str) and _HEX_MASK.fullmatch(raw)):
+        return server
+    return server & int(raw, 16)
+
+
 def seed_difficulty(ghs, target_spm):
     """Share difficulty at which `ghs` GH/s yields `target_spm` shares/minute.
 
@@ -395,6 +410,9 @@ class ClientConn:
         self._last_vardiff = 0.0            # monotonic ts of last vardiff retarget
         self.suggested_diff = None           # miner-requested starting difficulty
         self.seeded = False                  # starting difficulty seeded from the miner's API
+        # The ASIC's own difficulty as its API reports it (newer AxeOS only):
+        # vardiff never goes below it. None when unknown.
+        self.asic_floor = None
 
     def _tag(self):
         who = self.worker or f"{self.peer[0]}:{self.peer[1]}"
@@ -453,12 +471,26 @@ class ClientConn:
         await self.send({"id": None, "method": "mining.set_difficulty",
                          "params": [diff]})
 
-    def _clamp_diff(self, diff):
-        """Bound a difficulty to the configured vardiff floor/ceiling."""
+    def _diff_bounds(self):
+        """(floor, ceiling) for vardiff on this connection: the Settings min/max,
+        with the floor raised to the miner's ASIC difficulty when its API
+        reports one. The Settings maximum always wins."""
         v = self.jobs.vardiff
-        lo = max(1, v.get("min", 1))
+        lo = max(1, v.get("min", 128))
         hi = max(lo, v.get("max", 4000000))
+        if self.asic_floor:
+            lo = min(hi, max(lo, self.asic_floor))
+        return lo, hi
+
+    def _clamp_diff(self, diff):
+        """Bound a difficulty to the vardiff floor/ceiling (see _diff_bounds)."""
+        lo, hi = self._diff_bounds()
         return min(hi, max(lo, diff))
+
+    def note_device(self, device):
+        """Take the ASIC difficulty from this miner's polled API record, or
+        forget it when the miner is not (or no longer) linked."""
+        self.asic_floor = (device or {}).get("asic_difficulty") or None
 
     async def on_suggest_difficulty(self, mid, params):
         """Honor a miner's mining.suggest_difficulty request (AxeOS sends this).
@@ -548,7 +580,7 @@ class ClientConn:
         work = sum(d for t, d in self._shares if t >= cutoff)
         observed_spm = work / self.difficulty / (window / 60.0)
         target_spm = max(1, v.get("target_spm", 20))
-        lo, hi = v.get("min", 128), v.get("max", 4000000)
+        lo, hi = self._diff_bounds()
         if observed_spm <= 0:
             new_diff = max(lo, self.difficulty / 4)   # silent worker: ease off hard
         else:
@@ -721,9 +753,17 @@ class ClientConn:
         result = {}
         extensions = params[0] if params else []
         if isinstance(extensions, list) and "version-rolling" in extensions:
-            self.version_mask = VERSION_ROLLING_MASK
-            result["version-rolling"] = True
-            result["version-rolling.mask"] = VERSION_ROLLING_MASK
+            mask = negotiate_version_mask(params[1] if len(params) > 1 else None)
+            if mask:
+                self.version_mask = f"{mask:08x}"
+                result["version-rolling"] = True
+                result["version-rolling.mask"] = self.version_mask
+            else:
+                # No bit both sides can roll: version rolling stays off.
+                self.version_mask = None
+                result["version-rolling"] = False
+                log.info("%s version rolling off: no bit in common with %s",
+                         self._tag(), VERSION_ROLLING_MASK)
         await self.send_result(mid, result)
 
     async def on_subscribe(self, mid, params):
@@ -1206,6 +1246,7 @@ async def main():
                 await poller.poll_due()
                 devices = poller.link(c.raw_user for c in clients if c.raw_user)
                 for c in clients:
+                    c.note_device(devices.get(c.raw_user))
                     if not c.seeded and c.raw_user in devices:
                         await c.maybe_seed(devices[c.raw_user])
             except Exception as e:
