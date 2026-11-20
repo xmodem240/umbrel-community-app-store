@@ -51,8 +51,9 @@ your odds; only hashrate does. Run this for sovereignty, learning and the ticket
 ## Development
 
 - Tests: `python3 -I server/test_pipeline.py`, `python3 server/test_metrics_store.py`,
-  `python3 server/test_miner_poller.py` and `python3 server/test_vardiff_seed.py` (standard
-  library only).
+  `python3 server/test_miner_poller.py`, `python3 server/test_vardiff_seed.py`,
+  `python3 server/test_configure.py` and `python3 server/test_asic_floor.py` (standard library
+  only). CI runs the full list in `.github/workflows/build-axepool.yml`.
 - Firmware check: `server/firmware_check.py` compares each polled miner's firmware version with
   the newest stable release on GitHub (AxeOS: bitaxeorg/esp-miner, NerdQaxe:
   shufps/ESP-Miner-NerdQAxePlus), at most every 6 hours, cached in `firmware.json`. Read-only:
@@ -63,6 +64,13 @@ your odds; only hashrate does. Run this for sovereignty, learning and the ticket
   of vardiff working it out over several minutes. One shot per connection, clamped to the vardiff
   limits, never for a paused/stopped/overheating miner. The share-rate loop stays in charge
   afterwards, and now only counts shares mined at the current difficulty.
+- ASIC difficulty floor: when a miner's API reports `asicDifficulty` (newer AxeOS), vardiff,
+  seeding and `mining.suggest_difficulty` never set that miner below it, since AxeOS warns when
+  the pool difficulty is lower. The Settings maximum still wins; miners without the field are
+  unaffected.
+- Version rolling (BIP310): `mining.configure` grants the pool mask `1fffe000` ANDed with the
+  mask the miner asks for, and shares are rebuilt with the granted mask. A miner that sends no
+  mask gets `1fffe000`; with no common bit, version rolling is refused.
 - Miner monitoring: `server/miner_poller.py` reads each miner's own `GET /api/system/info`
   (AxeOS and NerdQaxe firmware) every 10 seconds, read-only. Miners are found from their Stratum
   connection; extra private LAN addresses can be listed in Settings. Results are at

@@ -183,6 +183,9 @@ def normalize(info, ip=None):
         "shares_rejected": _num(info.get("sharesRejected"), 0),
         "best_diff": _num(info.get("bestDiff"), 0),
         "pool_difficulty": _num(info.get("poolDifficulty"), 0),
+        # The difficulty the ASIC itself filters nonces at (newer AxeOS only).
+        # A pool difficulty below it gains nothing and AxeOS warns about it.
+        "asic_difficulty": _num(info.get("asicDifficulty"), 1, 2 ** 32),
         "uptime_s": _num(info.get("uptimeSeconds"), 0),
         # The Stratum username the miner is using right now (address.worker):
         # how a miner is linked to its row in the pool. Payout address only;
