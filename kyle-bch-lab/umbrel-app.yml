@@ -3,7 +3,7 @@ id: kyle-bch-lab
 category: bitcoin
 name: Bitcoin Cash Lab
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/bch-lab-icon.svg
-version: "0.7.0"
+version: "0.7.1"
 tagline: See which peers bring your Bitcoin Cash node new blocks first
 description: >-
   Your peers decide how soon your Bitcoin Cash node hears about a new block. Bitcoin Cash Lab notes, for every block, which peer delivered it first and ranks your peers by it.
@@ -23,7 +23,7 @@ description: >-
 
   For AxeBCH, host, ports and user are built in; you enter its per-install RPC password (the app tells you where to find it). Based on the MIT-licensed Bitcoin Lab and Peer Map by benunskilled. Geolocation by DB-IP.
 releaseNotes: >-
-  New: Peer Map, from upstream's new Peer Lab. A world map of your peers, who hosts them and what software they run, with the route of the newest block. Open it from the header. Everything is looked up inside the app; no peer address leaves your Umbrel. Your rotation and data are unchanged.
+  From Peer Lab 1.0.1: a pool app found on your Umbrel (LoneStrike Cash, AxeBCH, AxePool) is marked "✓ found" in Stratum Race and added with one tap. Peers behind Tor, I2P or Docker show that in words on the map instead of the proxy address. Plus a stricter limit on oversized pool messages and a gentler database clean-up.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies: []

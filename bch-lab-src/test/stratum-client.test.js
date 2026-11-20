@@ -150,6 +150,20 @@ test('a pool that never sends a newline does not grow the buffer without limit',
   assert.equal(conn.buffer.length, 0, 'and the buffer is not still holding it');
 });
 
+test('a single oversized line that arrives whole is refused too, not parsed', () => {
+  const conn = new StratumPoolConnection({ host: 'example.invalid', port: 3333, label: 'test' });
+  let reported = null;
+  let parsed = 0;
+  conn.on('protocolError', (info) => { reported = info; });
+  conn.on('notify', () => { parsed += 1; });
+  const huge = JSON.stringify({ method: 'mining.notify', params: ['x'.repeat(200 * 1024)] });
+  conn._handleChunk(Buffer.from(huge + '\n'), process.hrtime.bigint());
+  assert.ok(reported, 'the pool is reported');
+  assert.equal(reported.reason, 'line exceeds maximum size');
+  assert.equal(parsed, 0, 'and the line never reached the parser');
+  assert.equal(conn.buffer.length, 0);
+});
+
 test('a long burst of complete lines is not mistaken for one oversized line', () => {
   const conn = new StratumPoolConnection({ host: 'example.invalid', port: 3333, label: 'test' });
   let fired = 0;

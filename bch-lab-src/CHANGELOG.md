@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.1
+
+From upstream Peer Lab 1.0.1, the parts that fit Bitcoin Cash:
+
+- Stratum Race: a pool app found on this Umbrel (LoneStrike Cash, AxeBCH, AxePool) is marked "✓ found" in the
+  row of local pools, and one tap adds it. The separate "Found on this Umbrel" note above the row is gone.
+- Stratum Race: a pool line that arrives complete in one piece is held to the same 128 KB limit as one that
+  arrives in parts; before, a single oversized line went straight to the JSON parser.
+- Clean-up: a peer with more history than one clean-up step is removed over several steps instead of all at
+  once, so the database is never locked for long.
+- Peer Map: a peer reached through Tor, I2P or Docker reads "through the Tor proxy" (and so on) instead of the
+  proxy's own address, which is the same for all of them. The jump bar on a phone is no longer see-through.
+
+Not taken over: the Slot Fill changes, the stricter "/Satoshi:" check and three new Bitcoin client names
+(all Bitcoin-only, see 0.6.1 and 0.7.0).
+
 ## 0.7.0
 
 Upstream retired Bitcoin Lab and Peer Map in favour of one app, Peer Lab. This release brings its other half

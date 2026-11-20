@@ -95,7 +95,7 @@ is a different chain (Bitcoin Cash II); do not point this app at it.
 
 ## Peer Map
 
-`map/` is upstream's Peer Map 2.8.0 (Go, MIT), the app upstream merged with Bitcoin Lab into Peer Lab in
+`map/` is upstream's Peer Map 2.8.0 (Go, MIT), with the page fixes of Peer Lab 1.0.1 (20 November 2026), the app upstream merged with Bitcoin Lab into Peer Lab in
 November 2026. Changes for Bitcoin Cash, all in `map/bch.go` and marked where they hook in:
 
 - Bitcoin Cash clients are nodes by their own names; `/Satoshi:` (Bitcoin Core, Knots), Bitcoin ABC (eCash)

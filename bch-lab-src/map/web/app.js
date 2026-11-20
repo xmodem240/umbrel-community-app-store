@@ -323,9 +323,11 @@
     tor_hidden: "Tor (address hidden)", i2p_hidden: "I2P (address hidden)",
   }[n] || n || "-");
   const HIDDEN = {
-    ipv6_hidden: { short: "IPv6", tip: "Inbound IPv6 passes through Docker, which puts its own address in place of the peer's." },
-    tor_hidden: { short: "Tor", tip: "Reached through the Tor proxy, which hides the peer's address." },
-    i2p_hidden: { short: "I2P", tip: "Reached through the I2P router, which hides the peer's address." },
+    // via: words in place of the address, which behind a proxy is the
+    // proxy's own and the same for every such peer (from Peer Lab 1.0.1).
+    ipv6_hidden: { short: "IPv6", via: "through Docker", tip: "Inbound IPv6 passes through Docker, which puts its own address in place of the peer's." },
+    tor_hidden: { short: "Tor", via: "through the Tor proxy", tip: "Reached through the Tor proxy, which hides the peer's address." },
+    i2p_hidden: { short: "I2P", via: "through the I2P router", tip: "Reached through the I2P router, which hides the peer's address." },
   };
   // A flag from the two-letter country code: regional-indicator letters, no
   // image files. Unknown or missing codes get none.
@@ -2360,7 +2362,9 @@
         // than over every cell of the row.
         const got = deliveredNow.has(p.addr) ? "Delivered the newest block first"
           : deliveredEver.has(p.addr) ? "Has delivered a block first (Bitcoin Cash Lab)" : "";
-        fit(sub, p.addr, got);
+        const shownAddr = HIDDEN[p.network] ? HIDDEN[p.network].via : p.addr;
+        const addrClass = HIDDEN[p.network] ? "addr-txt via" : "addr-txt";
+        fit(sub, shownAddr, got);
         if (deliveredNow.has(p.addr)) {
           const star = document.createElement("span");
           star.className = "star";
@@ -2372,17 +2376,17 @@
         // the other question. Without it, plain text - no dead links.
         if (state.data && state.data.sibling) {
           const a = document.createElement("a");
-          a.className = "peer-jump addr-txt";
+          a.className = "peer-jump " + addrClass;
           a.href = siblingURL(p.addr);
           a.target = LAB_TARGET;
-          a.textContent = p.addr;
+          a.textContent = shownAddr;
           a.dataset.tip = "Open this peer in Bitcoin Cash Lab";
           a.title = [got, a.dataset.tip].filter(Boolean).join("\n");
           sub.appendChild(a);
         } else {
           const a = document.createElement("span");
-          a.className = "addr-txt";
-          a.textContent = p.addr;
+          a.className = addrClass;
+          a.textContent = shownAddr;
           sub.appendChild(a);
         }
         text.append(b, sub);

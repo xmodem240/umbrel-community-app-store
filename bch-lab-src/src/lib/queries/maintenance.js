@@ -80,7 +80,9 @@ function pruneOldData({
 // transaction with the choice inside it - the relay profiler writes from
 // another process - and a step holds at most about 20,000 observation rows,
 // so the write lock the other processes wait on (10 s) is never held long.
-const MAX_ROWS_PER_STEP = 20000;
+let MAX_ROWS_PER_STEP = 20000;
+/** For tests: a smaller step, so one peer over it needs no 20,000 rows. */
+function _setMaxRowsPerStep(n) { MAX_ROWS_PER_STEP = n; }
 
 function pruneNeverFirstPeers({ days = config.neverFirstPeerRetentionDays, maxSteps = 40 } = {}) {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -102,24 +104,38 @@ function pruneNeverFirstPeers({ days = config.neverFirstPeerRetentionDays, maxSt
     const ids = [];
     let rows = 0;
     for (const r of pick.all({ cutoff })) {
-      if (ids.length && rows + r.eligible > MAX_ROWS_PER_STEP) break;
+      if (rows + r.eligible > MAX_ROWS_PER_STEP) {
+        // One peer over the limit on its own: its rows go a step's worth at
+        // a time (the delete trigger lowers its count), and the peer itself
+        // once what is left fits. Before, the first peer was taken whole,
+        // however many rows it had.
+        if (!ids.length) {
+          const gone = db.instance.prepare(`DELETE FROM relay_observation WHERE rowid IN
+            (SELECT rowid FROM relay_observation WHERE peer_id = ? LIMIT ?)`).run(r.id, MAX_ROWS_PER_STEP).changes;
+          // A count above the real rows would find nothing here: stop
+          // rather than spend every step on it.
+          return { removed: 0, more: gone > 0 };
+        }
+        break;
+      }
       ids.push(r.id);
       rows += r.eligible;
     }
-    if (!ids.length) return 0;
+    if (!ids.length) return { removed: 0, more: false };
     const list = ids.map(() => '?').join(',');
     db.instance.prepare(`DELETE FROM relay_observation WHERE peer_id IN (${list})`).run(...ids);
     db.instance.prepare(`DELETE FROM peer_session WHERE peer_id IN (${list})`).run(...ids);
     db.instance.prepare(`DELETE FROM peer_relay_stats WHERE peer_id IN (${list})`).run(...ids);
-    return db.instance.prepare(`DELETE FROM peer WHERE id IN (${list})`).run(...ids).changes;
+    const removed = db.instance.prepare(`DELETE FROM peer WHERE id IN (${list})`).run(...ids).changes;
+    return { removed, more: removed > 0 };
   });
   let removed = 0;
   for (let i = 0; i < maxSteps; i += 1) {
     const n = step();
-    if (!n) break;
-    removed += n;
+    removed += n.removed;
+    if (!n.more) break;
   }
   return removed;
 }
 
-module.exports = { pruneOldData, pruneNeverFirstPeers };
+module.exports = { pruneOldData, pruneNeverFirstPeers, _setMaxRowsPerStep };

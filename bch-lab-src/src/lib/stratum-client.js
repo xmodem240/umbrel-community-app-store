@@ -212,19 +212,28 @@ class StratumPoolConnection extends EventEmitter {
       const line = this.buffer.slice(0, idx).trim();
       this.buffer = this.buffer.slice(idx + 1);
       if (!line) continue;
+      // The same limit for a line that arrived whole in one chunk: before,
+      // only an unterminated rest was measured, and a terminated line of any
+      // size went to JSON.parse (from Peer Lab 1.0.1).
+      if (Buffer.byteLength(line, 'utf8') > MAX_STRATUM_LINE_BYTES) {
+        this._tooLong();
+        return;
+      }
       this._handleLine(line, receivedAtHr, receivedAtMs);
     }
     // Checked after the loop, so a legitimate burst of complete lines in one
     // chunk is never the thing that trips it. What is left here is one
     // unterminated line, and only that is measured.
-    if (Buffer.byteLength(this.buffer, 'utf8') > MAX_STRATUM_LINE_BYTES) {
-      this.buffer = '';
-      this.emit('protocolError', {
-        reason: 'line exceeds maximum size',
-        limitBytes: MAX_STRATUM_LINE_BYTES,
-      });
-      this.socket?.destroy(new Error('stratum line exceeds maximum size'));
-    }
+    if (Buffer.byteLength(this.buffer, 'utf8') > MAX_STRATUM_LINE_BYTES) this._tooLong();
+  }
+
+  _tooLong() {
+    this.buffer = '';
+    this.emit('protocolError', {
+      reason: 'line exceeds maximum size',
+      limitBytes: MAX_STRATUM_LINE_BYTES,
+    });
+    this.socket?.destroy(new Error('stratum line exceeds maximum size'));
   }
 
   _handleLine(line, receivedAtHr, receivedAtMs) {

@@ -1958,36 +1958,26 @@ function showToast(message, kind) {
 // with the container name and internal stratum port of each and why those
 // differ from what a miner on the LAN uses, lives in src/lib/local-pools.js;
 // /api/pools/local hands it over together with which of them are installed.
-// The buttons are always there - a pool declined in the "found" note below
-// can still be added any time.
+// A pool app found on this Umbrel and not yet added stands out in the same
+// row ("✓ found") and is added with one tap; the others fill the form. The
+// list is asked for with every pool refresh, so a pool added or removed is
+// marked at once. (Upstream Peer Lab 1.0.1: a separate "Found on this Umbrel"
+// note above the row was overlooked.)
 let localPoolTemplates = {};
-
-// Pools found on this Umbrel and not yet added are offered once, until the
-// user adds or declines them. Declined ones are remembered in this browser
-// only; the quick-fill buttons stay either way.
-const POOLS_DISMISSED_KEY = 'lab.localPoolsDismissed';
-function dismissedPools() {
-  try { return new Set(JSON.parse(localStorage.getItem(POOLS_DISMISSED_KEY) || '[]')); } catch { return new Set(); }
-}
-let foundPools = [];
-// "A", "A and B", "A, B and C"
-function listLabels(labels) {
-  return labels.length < 3 ? labels.join(' and ') : `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
-}
 
 async function refreshLocalPools() {
   let list;
   try { list = await api('/api/pools/local'); } catch { return; }
   localPoolTemplates = Object.fromEntries(list.map((p) => [p.key, p]));
-  const dismissed = dismissedPools();
-  foundPools = list.filter((p) => p.installed && !p.added && !dismissed.has(p.key));
-  const box = document.getElementById('pool-found');
-  if (!box) return;
-  box.hidden = foundPools.length === 0;
-  if (foundPools.length) {
-    document.getElementById('pool-found-text').textContent =
-      `Found on this Umbrel: ${foundPools.map((p) => p.label).join(', ')}.`;
-  }
+  document.querySelectorAll('#pool-quickfill button[data-template]').forEach((btn) => {
+    const t = localPoolTemplates[btn.dataset.template];
+    const found = Boolean(t && t.installed && !t.added);
+    btn.classList.toggle('secondary', !found);
+    btn.dataset.action = found ? 'add-found-pool' : 'fill-pool-template';
+    btn.textContent = found ? `${t.label} ✓ found` : (t ? t.label : btn.textContent);
+    if (found) btn.title = `Found on this Umbrel - tap to add ${t.label} to Stratum Race`;
+    else btn.removeAttribute('title');
+  });
 }
 
 document.body.addEventListener('click', async (e) => {
@@ -1995,33 +1985,21 @@ document.body.addEventListener('click', async (e) => {
   if (!btn) return;
   const { action, address, id, template } = btn.dataset;
 
-  if (action === 'add-found-pools') {
+  if (action === 'add-found-pool') {
+    const p = localPoolTemplates[template];
+    if (!p) return;
     btn.disabled = true;
-    const added = [];
-    for (const p of foundPools) {
-      try {
-        await api('/api/pools', { method: 'POST', body: JSON.stringify({ label: p.label, host: p.host, port: p.port }) });
-        added.push(p);
-      } catch (err) {
-        showToast(`Could not add ${p.label}: ${err.message}`, 'error');
-      }
+    try {
+      await api('/api/pools', { method: 'POST', body: JSON.stringify({ label: p.label, host: p.host, port: p.port }) });
+      showToast(`Added ${p.label} to Stratum Race.`, 'success');
+    } catch (err) {
+      showToast(`Could not add ${p.label}: ${err.message}`, 'error');
     }
     btn.disabled = false;
-    // Offered once: a pool added here and removed later is not offered again.
-    // One that could not be added stays on offer.
-    const dismissed = dismissedPools();
-    added.forEach((p) => dismissed.add(p.key));
-    try { localStorage.setItem(POOLS_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch { /* private window */ }
-    if (added.length) showToast(`Added ${listLabels(added.map((p) => p.label))} to Stratum Race.`, 'success');
+    // The list is cached for five minutes on the server, but "added" is
+    // worked out fresh from the pools on every call.
     await refreshLocalPools();
     refreshPools();
-    return;
-  }
-  if (action === 'dismiss-found-pools') {
-    const dismissed = dismissedPools();
-    foundPools.forEach((p) => dismissed.add(p.key));
-    try { localStorage.setItem(POOLS_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch { /* private window: shows again next time */ }
-    document.getElementById('pool-found').hidden = true;
     return;
   }
   if (action === 'fill-pool-template') {

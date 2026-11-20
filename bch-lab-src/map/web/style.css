@@ -418,6 +418,8 @@ table.peers.aligned { table-layout: fixed; }
 /* A peer that has brought a block: its address in green, the same as in Bitcoin Lab. Only the address - whole green
    rows were a lot of colour for one bit. The orange of the newest block's deliverer stays a row. */
 .peers tr.delivered-ever .addr-txt { color: #56d364; }
+/* "through the Tor proxy" is no address: it stays grey. */
+.peers tr.delivered-ever .addr-txt.via { color: var(--faint); }
 /* The newest block's deliverer, while its star is up - the same two minutes. */
 .peers tr.delivered-now td { background: rgba(10,193,142,.13); }
 .peers tr.focus td { background: rgba(10,193,142,.10); }
@@ -512,6 +514,8 @@ table.peers.aligned { table-layout: fixed; }
    whatever is left over. */
 .peers td.peer small.sub { max-width: 320px; }
 .addr-txt { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--faint); }
+/* "through the Tor proxy" in place of an address: words, not an address. */
+.addr-txt.via { font: inherit; font-size: 13px; }
 a.addr-txt:hover { color: var(--accent); }
 /* The pill hangs left by its own padding, so its words start where the line under it does. */
 .peers .kind { margin-left: -9px; display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #1a2430; color: var(--text); }
@@ -660,7 +664,7 @@ tr.arrived > td { animation: arrived 2.4s ease-out; }
 .cards tr.arrived > td { animation: none; }
 @keyframes arrived { from { background-color: rgba(10,193,142, .16); } }
 /* Scrolling back up on a phone: the sections, a tap away. */
-.jump-bar { position: fixed; z-index: 30; left: 50%; top: 8px; transform: translate(-50%, -64px); display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(17, 24, 32, .92); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); transition: transform .2s ease; max-width: calc(100vw - 16px); }
+.jump-bar { position: fixed; z-index: 30; left: 50%; top: 8px; transform: translate(-50%, -64px); display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgb(17, 24, 32); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); transition: transform .2s ease; max-width: calc(100vw - 16px); }
 .jump-bar.shown { transform: translate(-50%, 0); }
 .jump-bar button { font: inherit; font-size: 13px; color: var(--text); background: none; border: 0; padding: 8px 11px; border-radius: 999px; white-space: nowrap; }
 .jump-bar button:active { background: var(--panel-2); }

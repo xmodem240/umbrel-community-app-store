@@ -1132,3 +1132,48 @@ test('pruneNeverFirstPeers removes only peers that never delivered first and are
   assert.equal(db.instance.prepare("SELECT COUNT(*) AS n FROM relay_race WHERE block_hash LIKE 'nf-race-%'").get().n, 3);
   assert.equal(queries.pruneNeverFirstPeers({ days: 30 }), 0, 'a second run finds nothing');
 });
+
+test('pruneNeverFirstPeers takes a peer with more rows than one step in several steps', () => {
+  db.resetPeerData();
+  db.instance.prepare('DELETE FROM trusted_peer').run();
+  const maintenance = require('../src/lib/queries/maintenance');
+  maintenance._setMaxRowsPerStep(5);
+  try {
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const p = db.getOrCreatePeer('203.0.113.220:8333');
+    db.instance.prepare('UPDATE peer SET first_seen_at = ? WHERE id = ?').run(now - 50 * day, p.id);
+    for (let i = 0; i < 12; i += 1) {
+      const r = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)').run(`big-${i}`, now - 60 * day).lastInsertRowid;
+      db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 0)').run(r, p.id);
+    }
+    db.instance.prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+      .run(p.id, 'inbound', 'inbound', now - 41 * day, now - 40 * day);
+    assert.equal(queries.pruneNeverFirstPeers({ days: 30 }), 1, 'gone in the end');
+    assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM relay_observation WHERE peer_id = ?').get(p.id).n, 0);
+    assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM peer WHERE id = ?').get(p.id).n, 0);
+  } finally {
+    maintenance._setMaxRowsPerStep(20000);
+  }
+});
+
+test('pruneNeverFirstPeers stops after maxSteps, a big peer half done and still there', () => {
+  db.resetPeerData();
+  const maintenance = require('../src/lib/queries/maintenance');
+  maintenance._setMaxRowsPerStep(5);
+  try {
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const p = db.getOrCreatePeer('203.0.113.221:8333');
+    db.instance.prepare('UPDATE peer SET first_seen_at = ? WHERE id = ?').run(now - 50 * day, p.id);
+    for (let i = 0; i < 12; i += 1) {
+      const r = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)').run(`big2-${i}`, now - 60 * day).lastInsertRowid;
+      db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 0)').run(r, p.id);
+    }
+    assert.equal(queries.pruneNeverFirstPeers({ days: 30, maxSteps: 1 }), 0);
+    assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM relay_observation WHERE peer_id = ?').get(p.id).n, 7, 'one step of 5 rows');
+    assert.equal(db.instance.prepare('SELECT eligible FROM peer_relay_stats WHERE peer_id = ?').get(p.id).eligible, 7, 'and the count follows');
+  } finally {
+    maintenance._setMaxRowsPerStep(20000);
+  }
+});
