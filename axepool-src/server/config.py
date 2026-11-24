@@ -17,6 +17,8 @@ Secrets (the RPC password) are never logged, and config.json is written 0600.
 import json
 import os
 
+from coinbase import coinbase_tag_error
+
 DEFAULTS = {
     "bchn_rpc_host": "bitcoind",
     "bchn_rpc_port": 8332,
@@ -39,6 +41,7 @@ DEFAULTS = {
     "miner_api_enabled": True,         # read each miner's own API (AxeOS / NerdQaxe), read-only
     "miner_api_hosts": "",             # extra miner addresses to read (private IPv4[:port], space/comma separated)
     "firmware_check_enabled": True,    # compare each miner's firmware with the latest GitHub release (read-only)
+    "coinbase_tag": "/AxePool/",       # text written into the coinbase of every block found (blank = none)
 }
 
 _ENV = {
@@ -103,6 +106,11 @@ def load():
         v = cfg[key]
         cfg[key] = (v.strip().lower() in ("1", "true", "yes", "on")
                     if isinstance(v, str) else bool(v))
+
+    # The Settings page validates the tag, but config.json can be hand-edited:
+    # a tag that would make every block invalid falls back to the default.
+    if coinbase_tag_error(cfg["coinbase_tag"]):
+        cfg["coinbase_tag"] = DEFAULTS["coinbase_tag"]
 
     return cfg
 

@@ -3,7 +3,7 @@ id: kyle-axepool
 category: bitcoin
 name: AxePool
 icon: https://raw.githubusercontent.com/xmodem240/umbrel-community-app-store/main/assets/axepool-icon.svg
-version: "0.5.2"
+version: "0.5.3"
 tagline: Solo mine Bitcoin Cash with your Bitaxe and NerdQaxe miners
 description: >-
   AxePool is a self-hosted Bitcoin Cash (BCH) solo-mining Stratum server for your own Bitcoin Cash
@@ -22,10 +22,10 @@ description: >-
 
   Early release. Based on the MIT-licensed SoloBCH Forge by DanCreatesStuff.
 releaseNotes: >-
-  Version rolling now grants only the header bits both AxePool and the miner support, as the
-  protocol (BIP310) specifies. Bitaxe and NerdQaxe ask for every bit and see no change. With
-  vardiff on, a miner whose firmware reports its ASIC difficulty (upcoming AxeOS releases) is never
-  given a lower pool difficulty, which would trigger an AxeOS warning.
+  The coinbase tag (the text written into any block you find, shown by block explorers) is now
+  a setting instead of always being /AxePool/. Change it under Settings, Coinbase tag: up to 64
+  plain characters, or blank for none. It applies to new work within about 30 seconds without
+  a restart, and work your miners already have keeps the tag it was sent with.
 developer: Kyle
 website: https://github.com/xmodem240/umbrel-community-app-store
 dependencies:

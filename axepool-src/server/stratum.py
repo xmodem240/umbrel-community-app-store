@@ -28,7 +28,7 @@ from bch_rpc import BitcoinCashRPC
 from block import block_hash
 from diagnostics import Diagnostics, DIAG_WORKER
 from job_manager import (JobManager, EXTRANONCE1_SIZE, EXTRANONCE2_SIZE,
-                         COINBASE_TAG, DIFF1_TARGET, target_from_difficulty)
+                         DIFF1_TARGET, target_from_difficulty)
 from history import History
 from metrics_store import MetricsStore, SAMPLE_INTERVAL as METRICS_TICK
 from miner_poller import MinerPoller, parse_target_list
@@ -626,14 +626,15 @@ class ClientConn:
     async def send_result(self, mid, result, error=None):
         await self.send({"id": mid, "result": result, "error": error})
 
-    def _remember_payout(self, job_id):
-        """Record that `job_id` went out paying the current payout script."""
+    def _remember_payout(self, job_id, tag):
+        """Record that `job_id` went out paying the current payout script, with
+        coinbase tag `tag` (the tag can change in Settings while a job is live)."""
         for old in [j for j in self.job_payouts if self.jobs.get_source(j) is None]:
             del self.job_payouts[old]
         payouts = self.job_payouts.setdefault(job_id, [])
-        pair = (self.payout_script, self.payout_address)
-        if pair not in payouts:
-            payouts.append(pair)
+        entry = (self.payout_script, self.payout_address, tag)
+        if entry not in payouts:
+            payouts.append(entry)
             del payouts[:-MAX_PAYOUTS_PER_JOB]
 
     def _remember_target(self, job_id):
@@ -655,10 +656,11 @@ class ClientConn:
         if isinstance(src, BlockTemplate):
             if self.payout_script is None:
                 return
+            tag = jm.coinbase_tag
             c1, c2 = src.coinb1_coinb2(self.payout_script, EXTRANONCE1_SIZE,
-                                       EXTRANONCE2_SIZE, COINBASE_TAG)
+                                       EXTRANONCE2_SIZE, tag)
             params = src.notify_params(jid, c1, c2, jm.current_clean)
-            self._remember_payout(jid)
+            self._remember_payout(jid, tag)
         else:
             params = src.notify_params(jid, jm.current_clean)
         self._remember_target(jid)
@@ -928,9 +930,9 @@ class ClientConn:
         cands = []                 # (hash, header, coinbase_raw, payout_address, version)
         try:
             if payouts is not None:
-                for script, address in reversed(payouts):          # newest first
+                for script, address, tag in reversed(payouts):     # newest first
                     c1, c2 = src.coinb1_coinb2(script, EXTRANONCE1_SIZE,
-                                               EXTRANONCE2_SIZE, COINBASE_TAG)
+                                               EXTRANONCE2_SIZE, tag)
                     coinbase_raw, cb_hash = src.coinbase(c1, self.extranonce1, en2, c2)
                     for v in versions:
                         header = src.header(cb_hash, v, ntime_int, nonce_int)
@@ -1151,7 +1153,8 @@ async def main():
                       notify_best_share=cfg["notify_best_share"],
                       notify_miner_offline=cfg["notify_miner_offline"],
                       zmq_endpoint=(cfg["zmq_block_endpoint"]
-                                    if cfg["zmq_enabled"] else ""))
+                                    if cfg["zmq_enabled"] else ""),
+                      coinbase_tag=cfg["coinbase_tag"])
 
     server = StratumServer(jobs)
     server.stratum_port = cfg["stratum_port"]

@@ -46,6 +46,25 @@ def bip34_height_push(height: int) -> bytes:
     return bytes([len(enc)]) + enc
 
 
+MAX_TAG_LEN = 64            # characters (= bytes: printable ASCII only)
+MAX_SCRIPT_SIG = 100        # consensus: a coinbase scriptSig is 2..100 bytes
+
+
+def coinbase_tag_error(tag):
+    """None if `tag` can be the coinbase tag (the text a found block carries
+    after the height and extranonce), else a short reason it cannot. Printable
+    ASCII only, so what the Settings page shows is exactly what a block
+    explorer shows, and the byte count is the character count."""
+    if not isinstance(tag, str):
+        return "must be text"
+    if len(tag) > MAX_TAG_LEN:
+        return f"must be at most {MAX_TAG_LEN} characters"
+    if any(not " " <= c <= "~" for c in tag):
+        return ("may only use plain characters: letters, digits, spaces and "
+                "punctuation (no emoji or accented letters)")
+    return None
+
+
 def build_coinbase_parts(height, coinbase_value, payout_script,
                          extranonce1_size, extranonce2_size,
                          tag=b"", tx_version=2):
@@ -60,6 +79,10 @@ def build_coinbase_parts(height, coinbase_value, payout_script,
 
     height_push = bip34_height_push(height)
     script_sig_len = len(height_push) + extranonce1_size + extranonce2_size + len(tag)
+    if script_sig_len > MAX_SCRIPT_SIG:
+        # The node would reject every block built from this job.
+        raise ValueError(f"coinbase scriptSig would be {script_sig_len} bytes "
+                         f"(max {MAX_SCRIPT_SIG}): shorten the coinbase tag")
 
     # coinb1: up to (and including) the BIP34 height push; extranonce follows.
     coinb1 = (

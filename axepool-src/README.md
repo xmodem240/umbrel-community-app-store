@@ -68,6 +68,10 @@ your odds; only hashrate does. Run this for sovereignty, learning and the ticket
   seeding and `mining.suggest_difficulty` never set that miner below it, since AxeOS warns when
   the pool difficulty is lower. The Settings maximum still wins; miners without the field are
   unaffected.
+- Coinbase tag: the text written into every block found (default `/AxePool/`) is a setting
+  (Settings, Coinbase tag). Up to 64 printable ASCII characters; blank means none. It applies to
+  new work within about 30 seconds; each connection remembers the tag every job went out with,
+  so a block found on earlier work is rebuilt byte-exact. Test: `server/test_coinbase_tag.py`.
 - Version rolling (BIP310): `mining.configure` grants the pool mask `1fffe000` ANDed with the
   mask the miner asks for, and shares are rebuilt with the granted mask. A miner that sends no
   mask gets `1fffe000`; with no common bit, version rolling is refused.

@@ -30,7 +30,7 @@ TEMPLATE_REFRESH = 30.0           # re-fetch the template this often on an uncha
                                   # tip (picks up new fee-paying txs + fresh curtime)
 EXTRANONCE1_SIZE = 4              # bytes; server-assigned per connection
 EXTRANONCE2_SIZE = 4             # bytes; advertised in mining.subscribe
-COINBASE_TAG = b"/AxePool/"
+COINBASE_TAG = b"/AxePool/"          # default; the live tag is JobManager.coinbase_tag
 COINBASE_MATURITY = 100           # confirmations before a coinbase can be spent
 
 
@@ -104,8 +104,13 @@ class JobManager:
     def __init__(self, rpc, share_difficulty, poll_interval=5.0,
                  vardiff=None, webhook_url="", stats=None,
                  notify_block=True, notify_best_share=True,
-                 notify_miner_offline=True, zmq_endpoint=""):
+                 notify_miner_offline=True, zmq_endpoint="",
+                 coinbase_tag=COINBASE_TAG.decode()):
         self.rpc = rpc
+        # Text after the height + extranonce in every coinbase we hand out.
+        # Each connection remembers the tag a job went out with, so changing
+        # it never breaks the rebuild of work already sent.
+        self.coinbase_tag = coinbase_tag.encode("ascii")
         self.stats = stats
         # `notify_on_*` flags gate each alert type; named to avoid clashing with
         # the notify_block()/notify_miner_offline() coroutine methods below.
@@ -321,6 +326,7 @@ class JobManager:
         self.notify_on_block = cfg["notify_block"]
         self.notify_best_share = cfg["notify_best_share"]
         self.notify_on_miner_offline = cfg["notify_miner_offline"]
+        self.coinbase_tag = cfg["coinbase_tag"].encode("ascii")   # from the next job on
         self.node_reachable = False       # force a fresh check on next poll
         log.info("config applied — node %s, share diff %s, vardiff %s",
                  self.rpc, self.share_difficulty,

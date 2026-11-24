@@ -26,7 +26,7 @@ import urllib.parse
 
 import cashaddr
 import config
-from job_manager import EXTRANONCE1_SIZE, EXTRANONCE2_SIZE, COINBASE_TAG
+from job_manager import EXTRANONCE1_SIZE, EXTRANONCE2_SIZE
 from template import BlockTemplate
 
 log = logging.getLogger("solobch.diag")
@@ -289,7 +289,7 @@ class Diagnostics:
             script, addr = cashaddr.to_script(DIAG_ADDRESS), DIAG_ADDRESS
         en1, en2 = "00" * EXTRANONCE1_SIZE, "00" * EXTRANONCE2_SIZE
         c1, c2 = tmpl.coinb1_coinb2(script, EXTRANONCE1_SIZE, EXTRANONCE2_SIZE,
-                                    COINBASE_TAG)
+                                    self.jobs.coinbase_tag)
         raw, cb_hash = tmpl.coinbase(c1, en1, en2, c2)
         header = tmpl.header(cb_hash, tmpl.version, tmpl.curtime, 0)
         blockhex = tmpl.full_block(raw, header)

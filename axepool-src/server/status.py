@@ -34,6 +34,7 @@ import re
 import time
 
 import config
+from coinbase import coinbase_tag_error
 from miner_poller import parse_target_list
 
 REQUEST_TIMEOUT = 10.0        # seconds to receive a full request
@@ -903,6 +904,12 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;ma
 </div>
 
 <div class="sec">
+<h2>Coinbase tag</h2>
+<label>Tag <span class="note">(blank = none)</span></label><input id="coinbase_tag" maxlength="64" placeholder="/AxePool/">
+<div class="note">Text written into every block your miners find; block explorers show it as the pool's signature. Up to 64 plain characters: letters, digits, spaces and punctuation. Applies to new work within about 30 seconds, no restart.</div>
+</div>
+
+<div class="sec">
 <h2>Network</h2>
 <div class="row"><div><label>Stratum port <span class="note">(restart)</span></label><input id="stratum_port"></div>
 <div><label>Status port <span class="note">(restart)</span></label><input id="status_port"></div></div>
@@ -926,7 +933,7 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;ma
 <div id="msg"></div>
 </div>
 <script>
-const FIELDS=['bchn_rpc_host','bchn_rpc_port','bchn_rpc_user','stratum_port','status_port','share_difficulty','vardiff_enabled','vardiff_target_spm','vardiff_min','vardiff_max','webhook_url','miner_api_enabled','miner_api_hosts','firmware_check_enabled'];
+const FIELDS=['bchn_rpc_host','bchn_rpc_port','bchn_rpc_user','stratum_port','status_port','share_difficulty','vardiff_enabled','vardiff_target_spm','vardiff_min','vardiff_max','webhook_url','miner_api_enabled','miner_api_hosts','firmware_check_enabled','coinbase_tag'];
 const BOOL_FIELDS=['vardiff_enabled','miner_api_enabled','firmware_check_enabled'];
 const CHECK_FIELDS=['notify_block','notify_best_share','notify_miner_offline'];
 const JSON_HDR={'content-type':'application/json'};
@@ -961,6 +968,9 @@ function validate(){
  if(!(mx>=mn))return 'Max diff must be ≥ min diff';
  const wh=document.getElementById('webhook_url').value.trim().toLowerCase();
  if(wh&&!(wh.startsWith('http://')||wh.startsWith('https://')))return 'Webhook URL must start with http:// or https://';
+ const tag=document.getElementById('coinbase_tag').value;
+ if(tag.length>64)return 'Coinbase tag must be at most 64 characters';
+ if(!/^[\\x20-\\x7e]*$/.test(tag))return 'Coinbase tag may only use plain characters: letters, digits, spaces and punctuation';
  return '';
 }
 async function save(){
@@ -970,7 +980,7 @@ async function save(){
  msg.innerHTML='Saving…';
  try{
   const r=await postJSON('/config',collect());
-  msg.innerHTML = r.ok ? '<span style="color:#3fb950">Saved. RPC, difficulty, vardiff, webhook &amp; miner monitoring applied live; port changes need an app restart.</span>'
+  msg.innerHTML = r.ok ? '<span style="color:#3fb950">Saved. RPC, difficulty, vardiff, webhook, miner monitoring &amp; coinbase tag applied live; port changes need an app restart.</span>'
                        : '<span style="color:#f85149">Error: '+(r.error||'unknown')+'</span>';
   return !!r.ok;
  }catch(e){msg.innerHTML='<span style="color:#f85149">Request failed: '+e+'</span>';return false;}
@@ -1141,6 +1151,10 @@ def validate_updates(updates, current):
             return f"Miner addresses: {e}"
         updates["miner_api_hosts"] = " ".join(
             ip if port == 80 else f"{ip}:{port}" for ip, port in hosts)
+    if "coinbase_tag" in updates:
+        err = coinbase_tag_error(updates["coinbase_tag"])
+        if err:
+            return f"Coinbase tag {err}"
     for k in ("vardiff_enabled", "notify_block", "notify_best_share",
               "notify_miner_offline", "zmq_enabled", "miner_api_enabled",
               "firmware_check_enabled"):
@@ -1418,9 +1432,10 @@ class StatusServer:
         for k in config.DEFAULTS:
             if k not in data or k == "hidden_cards":     # layout has its own route
                 continue
-            # blank means "leave unchanged" for every field except webhook_url
-            # and miner_api_hosts, where an empty string clears the setting.
-            if data[k] == "" and k not in ("webhook_url", "miner_api_hosts"):
+            # blank means "leave unchanged" for every field except webhook_url,
+            # miner_api_hosts and coinbase_tag, where an empty string clears it.
+            if data[k] == "" and k not in ("webhook_url", "miner_api_hosts",
+                                           "coinbase_tag"):
                 continue
             updates[k] = data[k]
         err = validate_updates(updates, config.load())
