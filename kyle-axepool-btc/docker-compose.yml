@@ -1,0 +1,65 @@
+version: "3.7"
+
+# AxePool BTC: Bitcoin solo-mining Stratum server for the Umbrel Bitcoin node.
+#
+# NODE. Depends on the "bitcoin" app slot, which the Bitcoin Node app fills and Bitcoin Knots
+# also fills (Knots `implements: bitcoin` and re-exports its values as APP_BITCOIN_*), the same
+# way Public Pool connects. Cross-app DNS by service name does not work under umbreld, so the
+# node is reached by its injected IP. Environment values win over config.json, so these fields
+# show as locked on the Settings page.
+#
+# IMAGE: built by .github/workflows/build-axepool-btc.yml from axepool-btc-src/. The GHCR
+# package must be set to public once, or Umbrel cannot pull it.
+#
+# Hardening (read-only root, tmpfs /tmp, no capabilities, no-new-privileges) matches AxePool.
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: kyle-axepool-btc_server_1
+      APP_PORT: 3335
+
+  server:
+    # Pinned by digest after CI publishes (see the build workflow's summary).
+    image: ghcr.io/xmodem240/axepool-btc:0.1.0
+    # Umbrel owns the app's data dir as UID 1000; the shipped data/ folder is copied in
+    # 1000-owned on install.
+    user: "1000:1000"
+    init: true
+    restart: on-failure
+    stop_grace_period: 1m
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    ports:
+      - "3345:3334"                 # Stratum for miners (LAN). 3345: clear of AxePool (3344), Public Pool (3333), Bassin (3456).
+    volumes:
+      - ${APP_DATA_DIR}/data:/data  # persistent config.json + stats + history
+    # The default json-file driver never rotates: cap logs so share lines cannot fill the disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      APP_DATA_DIR: /data
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      BCHN_RPC_HOST: ${APP_BITCOIN_NODE_IP}
+      BCHN_RPC_PORT: ${APP_BITCOIN_RPC_PORT}
+      BCHN_RPC_USER: ${APP_BITCOIN_RPC_USER}
+      BCHN_RPC_PASSWORD: ${APP_BITCOIN_RPC_PASS}
+      SOLOBCH_ZMQ_ENDPOINT: tcp://${APP_BITCOIN_NODE_IP}:${APP_BITCOIN_ZMQ_HASHBLOCK_PORT}
+      # mainnet / testnet / testnet4 / signet / regtest, as set in the node app. Payout
+      # addresses are checked against it (and against the chain the node itself reports).
+      SOLOBCH_NETWORK: ${APP_BITCOIN_NETWORK}
+      # Ports are fixed by the mappings above (ports: and app_proxy APP_PORT), so they are
+      # pinned here and show as locked in Settings: changing them there would break the app.
+      SOLOBCH_STRATUM_PORT: "3334"
+      SOLOBCH_STATUS_PORT: "3335"
+      # The port miners use (the host side of 3345:3334), shown on the dashboard.
+      SOLOBCH_PUBLIC_STRATUM_PORT: "3345"

@@ -1,0 +1,122 @@
+name: Build AxePool BTC image
+on:
+  push:
+    branches: [main]
+    paths:
+      - "axepool-btc-src/**"
+      - "kyle-axepool-btc/umbrel-app.yml"
+      - ".github/workflows/build-axepool-btc.yml"
+  pull_request:
+    paths:
+      - "axepool-btc-src/**"
+      - ".github/workflows/build-axepool-btc.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: axepool-btc-src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m py_compile server/*.py
+      - run: python -I server/test_pipeline.py
+      - run: python -I server/btcaddr.py
+      - run: python server/coinbase.py
+      - run: python server/template.py
+      - run: python server/block.py
+      - run: python server/test_metrics_store.py
+      - run: python server/test_miner_poller.py
+      - run: python server/test_vardiff_seed.py
+      - run: python server/test_ports.py
+      - run: python server/test_diff_change.py
+      - run: python server/test_firmware_check.py
+      - run: python server/test_rejects.py
+      - run: python server/test_monitor.py
+      - run: python server/test_configure.py
+      - run: python server/test_asic_floor.py
+      - run: python server/test_coinbase_tag.py
+      - run: python server/test_network.py
+  build:
+    needs: test
+    # Pull requests only run the tests. Other branches (workflow_dispatch) build, smoke test
+    # and scan without publishing anything; only main publishes images.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        run: |
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr A-Z a-z)" >> "$GITHUB_OUTPUT"
+          # The image tag is the version in umbrel-app.yml, so it always matches docker-compose.yml.
+          v="$(sed -nE 's/^version:[[:space:]]*"?([^"]+)"?[[:space:]]*$/\1/p' kyle-axepool-btc/umbrel-app.yml)"
+          test -n "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      # Everything below is checked BEFORE anything is published.
+      - name: Build image for checks (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: axepool-btc-src
+          platforms: linux/amd64
+          load: true
+          tags: axepool-btc:check
+      # The test job uses the runner's Python; this proves the image itself: the stdlib
+      # modules the server needs, and every server module importing cleanly.
+      - name: Smoke test image
+        run: |
+          docker run --rm --entrypoint python3 axepool-btc:check -c \
+            "import sqlite3, sys; sys.path.insert(0, '/app/server'); import stratum, status, metrics_store, miner_poller, btcaddr; print('ok sqlite', sqlite3.sqlite_version)"
+          # pip and setuptools are removed from the image on purpose (see Dockerfile).
+          docker run --rm --entrypoint python3 axepool-btc:check -c \
+            "import importlib.util as u; bad=[m for m in ('pip','setuptools','ensurepip') if u.find_spec(m)]; assert not bad, bad; print('no pip/setuptools')"
+          # The image must still run as the non-root user.
+          test "$(docker run --rm --entrypoint id axepool-btc:check -u)" != "0"
+          # The firmware check calls api.github.com over HTTPS: the image needs root CAs.
+          docker run --rm --entrypoint python3 axepool-btc:check -c \
+            "import ssl, os; p = ssl.get_default_verify_paths(); f = p.cafile or p.openssl_cafile; assert f and os.path.isfile(f) and os.path.getsize(f) > 10000, p; print('CA bundle', f, os.path.getsize(f))"
+      # Real GitHub API call from inside the image. Informational: a GitHub outage or
+      # rate limit must not block a release, but the log shows the latest releases.
+      - name: Live firmware check from the image
+        continue-on-error: true
+        run: docker run --rm --entrypoint python3 axepool-btc:check /app/server/firmware_check.py
+      # Block the release on any HIGH/CRITICAL vulnerability that has a fix available.
+      # Third-party action pinned to a commit (v0.36.0, 2026-04-22).
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: axepool-btc:check
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      - name: Publish multi-arch image
+        id: push
+        if: github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: axepool-btc-src
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ steps.meta.outputs.owner }}/axepool-btc:${{ steps.meta.outputs.version }}
+            ghcr.io/${{ steps.meta.outputs.owner }}/axepool-btc:latest
+      # The digest to pin in kyle-axepool-btc/docker-compose.yml for this release.
+      - name: Record digest
+        if: github.ref == 'refs/heads/main'
+        run: |
+          line="image: ghcr.io/${{ steps.meta.outputs.owner }}/axepool-btc:${{ steps.meta.outputs.version }}@${{ steps.push.outputs.digest }}"
+          echo "$line"
+          echo "Pin in kyle-axepool-btc/docker-compose.yml: \`$line\`" >> "$GITHUB_STEP_SUMMARY"

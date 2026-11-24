@@ -1,0 +1,1466 @@
+#!/usr/bin/env python3
+"""
+AxePool - status + config service (stdlib async HTTP).
+
+Runs on the asyncio loop (reads live state safely, no threads). Routes:
+    GET  /            live dashboard
+    GET  /status      JSON snapshot (server + node + miners + blocks)
+    GET  /metrics     Prometheus text exposition (for Grafana/Prometheus)
+    GET  /history     persisted hashrate/share time-series (dashboard chart)
+    GET  /series      10s/1m/1h metrics (?range=1h|6h|24h|7d|30d|1y&miner=&since=)
+    GET  /series/miners  miner identities seen, with last-seen time
+    GET  /devices     miners' own API readings (AxeOS / NerdQaxe), read-only
+    GET  /config      settings page
+    GET  /config.json current settings (password redacted, env-locked keys listed)
+    POST /config      save settings -> config.json (validated), applied live
+    POST /test-rpc    probe the node with the saved credentials
+    POST /test-webhook  send a test alert to the saved webhook
+    POST /reset-stats   zero lifetime counters (found blocks are kept)
+    GET/POST /ui-prefs  dashboard card layout
+    GET  /diag          progress/result of the "Is this working?" checks
+    POST /diag/start, /diag/stop   run / abort those checks
+
+NEVER returns the RPC password. In the Umbrel app this is behind app_proxy auth.
+Every state-changing route is POST-only and requires Content-Type:
+application/json, which a cross-site HTML form cannot send and a cross-origin
+fetch cannot send without a CORS preflight we never grant, so a web page the
+operator happens to visit cannot drive this API. CORS is opened only for the
+read-only /status, /metrics and /history endpoints.
+"""
+
+import asyncio
+import json
+import re
+import time
+
+import config
+from btcaddr import AddressError, chain_name
+from coinbase import coinbase_tag_error
+from miner_poller import parse_target_list
+
+REQUEST_TIMEOUT = 10.0        # seconds to receive a full request
+MAX_HEADERS = 100
+MAX_BODY = 65536
+MAX_HTTP_CONNECTIONS = 32
+CORS_OPEN = ("/status", "/metrics", "/history")   # read-only, safe to share
+_CARD_ID = re.compile(r"[a-z0-9_]{1,40}")
+
+
+def human_hashrate(hps: float) -> str:
+    if not hps:
+        return "0 H/s"
+    for unit in ("H", "KH", "MH", "GH", "TH", "PH"):
+        if hps < 1000:
+            return f"{hps:.2f} {unit}/s"
+        hps /= 1000
+    return f"{hps:.2f} EH/s"
+
+
+def build_snapshot(server, jobs) -> dict:
+    now = time.time()
+    # The diagnostics self-test client is internal plumbing, not a miner.
+    # Monitoring tools (Bitcoin Lab's Stratum Race) log in like miners but
+    # never hash: listed separately, left out of every miner count and total.
+    monitors = [{"name": c.monitor, "ip": c.peer[0] if c.peer else None,
+                 "connected_s": round(time.monotonic() - c.connected_mono)}
+                for c in server.clients
+                if getattr(c, "monitor", None) and c.authorized
+                and not getattr(c, "internal", False)]
+    clients = [c for c in server.clients if not getattr(c, "internal", False)
+               and not getattr(c, "monitor", None)]
+    miners = [c.stats_snapshot(now) for c in clients]
+
+    def sum_hr(w):
+        return sum(c.window_hashrate(w) for c in clients)
+
+    # Lifetime achievements come from the persistent store so they stay visible
+    # across reboots and with no miner connected; live values are per-session.
+    st = jobs.stats.snapshot()
+    live_best = max((c.best_diff for c in clients), default=0.0)
+    pool = {
+        "hashrate_1m": sum_hr(60),
+        "hashrate_5m": sum_hr(300),
+        "hashrate_1h": sum_hr(3600),
+        "best_diff": max(st["best_diff"], live_best),   # all-time, persisted
+        "best_diff_at": st["best_diff_at"],
+        "best_diff_worker": st["best_diff_worker"],
+        "accepted": st["lifetime_accepted"],            # lifetime, persisted
+        "rejected": st["lifetime_rejected"],            # lifetime, persisted
+        "rejected_by": st["lifetime_rejected_by"],      # lifetime, by reason (from 0.5.0)
+        "accepted_session": sum(c.accepted for c in clients),
+        "rejected_session": sum(c.rejected for c in clients),
+        "shares_per_sec": sum(c.shares_in(60) for c in clients) / 60.0,
+        "workers": len(clients),
+        "mining_since": st["first_started"],
+        "mining_seconds": st["mining_seconds"],
+        "total_hashes": st["lifetime_work"] * (2 ** 32),
+        "lifetime_avg_hps": (st["lifetime_work"] * (2 ** 32) / st["mining_seconds"]
+                             if st["mining_seconds"] > 0 else 0.0),
+    }
+    return {
+        "server": {
+            "name": "AxePool BTC",
+            "status": "running",
+            "stratum_port": getattr(server, "public_stratum_port", server.stratum_port),
+            "uptime_s": round(now - server.start_time_wall, 1),
+            "connections": len(server.clients),
+        },
+        "pool": pool,
+        "node": jobs.status_snapshot(),
+        "miners": miners,
+        "monitors": monitors,
+        "generated": now,
+    }
+
+
+METRICS_CT = "text/plain; version=0.0.4; charset=utf-8"
+
+
+def _mlabel(v) -> str:
+    """Escape a Prometheus label value (backslash, quote, newline)."""
+    return str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _mnum(x) -> str:
+    """Render a value as a Prometheus sample number (None -> NaN)."""
+    if x is None:
+        return "NaN"
+    if isinstance(x, bool):
+        return "1" if x else "0"
+    if isinstance(x, int):
+        return str(x)
+    try:
+        return repr(float(x))
+    except (TypeError, ValueError):
+        return "NaN"
+
+
+def build_metrics(server, jobs) -> str:
+    """Render the current snapshot in Prometheus text exposition format.
+
+    Reuses build_snapshot so the numbers match the dashboard exactly. Safe to
+    scrape frequently: it only reads already-collected in-memory state.
+    """
+    s = build_snapshot(server, jobs)
+    p, n, srv = s["pool"], s["node"], s["server"]
+    lines = []
+
+    def metric(name, typ, help_, samples):
+        lines.append(f"# HELP {name} {help_}")
+        lines.append(f"# TYPE {name} {typ}")
+        for labels, val in samples:
+            lbl = "{" + labels + "}" if labels else ""
+            lines.append(f"{name}{lbl} {_mnum(val)}")
+
+    metric("solobch_up", "gauge", "1 if the exporter is responding.", [("", 1)])
+    metric("solobch_uptime_seconds", "gauge", "Server process uptime.",
+           [("", srv["uptime_s"])])
+    metric("solobch_stratum_connections", "gauge",
+           "Current open Stratum connections.", [("", srv["connections"])])
+    metric("solobch_workers", "gauge", "Connected workers.", [("", p["workers"])])
+    metric("solobch_hashrate_hps", "gauge",
+           "Pool hashrate (hashes/sec) by averaging window.",
+           [('window="1m"', p["hashrate_1m"]),
+            ('window="5m"', p["hashrate_5m"]),
+            ('window="1h"', p["hashrate_1h"])])
+    metric("solobch_shares_per_second", "gauge",
+           "Accepted shares per second (1m average).", [("", p["shares_per_sec"])])
+    metric("solobch_best_difficulty", "gauge",
+           "All-time best share difficulty.", [("", p["best_diff"])])
+    metric("solobch_shares_accepted_total", "counter",
+           "Lifetime accepted shares (persisted).", [("", p["accepted"])])
+    metric("solobch_shares_rejected_total", "counter",
+           "Lifetime rejected shares (persisted).", [("", p["rejected"])])
+    metric("solobch_shares_rejected_by_reason_total", "counter",
+           "Lifetime rejected shares by reason (persisted, counted since 0.5.0).",
+           [(f'reason="{k}"', v) for k, v in sorted(p["rejected_by"].items())])
+    metric("solobch_session_shares_accepted", "gauge",
+           "Accepted shares since this process started.",
+           [("", p["accepted_session"])])
+    metric("solobch_session_shares_rejected", "gauge",
+           "Rejected shares since this process started.",
+           [("", p["rejected_session"])])
+    metric("solobch_total_hashes", "gauge",
+           "Estimated lifetime hashes computed.", [("", p["total_hashes"])])
+    metric("solobch_lifetime_avg_hps", "gauge",
+           "Lifetime average hashrate (hashes/sec).", [("", p["lifetime_avg_hps"])])
+    metric("solobch_mining_seconds", "gauge",
+           "Accumulated mining time (seconds).", [("", p["mining_seconds"])])
+    metric("solobch_blocks_found_total", "counter",
+           "Blocks found (all-time).", [("", n.get("blocks_found"))])
+    metric("solobch_node_reachable", "gauge",
+           "1 if the Bitcoin node RPC is reachable.", [("", n.get("node_reachable"))])
+    metric("solobch_node_synced", "gauge",
+           "1 if the node is synced (not in IBD).", [("", n.get("node_ready"))])
+    metric("solobch_node_block_height", "gauge",
+           "Node best block height.", [("", n.get("blocks"))])
+    metric("solobch_network_difficulty", "gauge",
+           "Current Bitcoin network difficulty.", [("", n.get("difficulty"))])
+    metric("solobch_block_reward_sats", "gauge",
+           "Current block reward incl. fees (satoshis).",
+           [("", n.get("coinbase_value"))])
+    metric("solobch_mining_real", "gauge",
+           "1 when serving real templates, 0 when mock (IBD).",
+           [("", 1 if n.get("mode") == "real" else 0)])
+    metric("solobch_share_difficulty", "gauge",
+           "Configured share (vardiff anchor) difficulty.",
+           [("", n.get("share_difficulty"))])
+
+    miners = s["miners"]
+    if miners:
+        def per(key):
+            out = []
+            for m in miners:
+                lbl = (f'worker="{_mlabel(m.get("worker") or "?")}",'
+                       f'ip="{_mlabel(m.get("ip") or "?")}"')
+                out.append((lbl, m.get(key)))
+            return out
+        metric("solobch_miner_hashrate_hps", "gauge",
+               "Per-miner hashrate (5m average).", per("hashrate_hps"))
+        metric("solobch_miner_difficulty", "gauge",
+               "Per-miner current share difficulty.", per("difficulty"))
+        metric("solobch_miner_best_difficulty", "gauge",
+               "Per-miner best share difficulty (session).", per("best_diff"))
+        metric("solobch_miner_shares_accepted", "gauge",
+               "Per-miner accepted shares (session).", per("accepted"))
+        metric("solobch_miner_shares_rejected", "gauge",
+               "Per-miner rejected shares (session).", per("rejected"))
+        metric("solobch_miner_blocks", "gauge",
+               "Per-miner blocks found (all-time).", per("blocks"))
+        metric("solobch_miner_last_share_seconds", "gauge",
+               "Seconds since this miner's last accepted share.",
+               per("last_share_ago"))
+
+    return "\n".join(lines) + "\n"
+
+
+DASHBOARD_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<title>AxePool BTC</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230d1117'/><text x='16' y='24' font-size='21' text-anchor='middle' fill='%233fb950' font-family='sans-serif' font-weight='700'>B</text></svg>">
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#0d1117;color:#e6edf3;font:14px/1.5 system-ui,sans-serif}
+header{padding:16px 20px;background:#161b22;border-bottom:1px solid #30363d;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:30;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+h1{margin:0;font-size:18px}h1 span{color:#f7931a}
+.btn{color:#58a6ff;text-decoration:none;font-size:13px;border:1px solid #30363d;padding:6px 10px;border-radius:6px;flex:none;background:none;font-family:inherit;line-height:1.5;cursor:pointer}
+.hbtns{display:flex;gap:8px;align-items:center;flex:none}
+.editbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.editbtn{flex:none;background:#21262d;border:1px solid #30363d;color:#e6edf3;font-size:12px;padding:5px 12px;border-radius:6px;cursor:pointer}
+.editbtn.active{background:#238636;border-color:#238636;color:#fff}
+.removed{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.rlabel{color:#8b949e;font-size:11px}
+.chip{background:#21262d;border:1px dashed #444c56;color:#adbac7;font-size:12px;padding:4px 10px;border-radius:12px;cursor:pointer;white-space:nowrap}
+.chip:hover{color:#e6edf3;border-color:#58a6ff}
+.wrap{padding:16px;max-width:1000px;margin:0 auto}
+@media (min-width:640px){.wrap{padding:20px}}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 14px;position:relative}
+.card .k{color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.card .v{font-size:18px;font-weight:600;margin-top:4px;word-break:break-all}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;position:relative}
+.minus{position:absolute;top:5px;right:5px;width:20px;height:20px;line-height:1;border-radius:50%;background:#f85149;border:0;color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.minus:hover{background:#da3633}
+.editing .stat,.editing .card{outline:1px dashed #30363d;outline-offset:2px}
+.stat .k{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.stat .v{font-size:22px;font-weight:700;margin-top:6px;color:#e6edf3}
+.stat .v small{font-size:13px;color:#8b949e;font-weight:600}
+.stat.hl .v{color:#3fb950}
+.groups{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.group{display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1 1 300px}
+/* Tables are mobile-first: each row is a stacked card on phones (label on the
+   left via data-label, value on the right — no left/right scrolling), and only
+   become a real multi-column table at >=640px. */
+table{width:100%;border-collapse:collapse;background:transparent}
+thead{display:none}
+tr{display:block;background:#161b22;border:1px solid #30363d;border-radius:8px;margin-bottom:10px;overflow:hidden}
+td{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:7px 12px;border-bottom:1px solid #21262d;font-variant-numeric:tabular-nums;text-align:right;word-break:break-word}
+td::before{content:attr(data-label);color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;text-align:left;flex:none}
+tr td:last-child{border-bottom:none}
+td.empty{display:block;text-align:center;padding:20px}
+td.empty::before{content:none}
+@media (min-width:640px){
+ table{border:1px solid #30363d;border-radius:8px;overflow:hidden}
+ thead{display:table-header-group}
+ tr{display:table-row;background:none;border:0;border-radius:0;margin:0}
+ th,td{display:table-cell;text-align:left;padding:8px 10px;border-bottom:1px solid #21262d;font-variant-numeric:tabular-nums;word-break:normal;gap:0}
+ th{color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+ td::before{content:none}
+ tr:last-child td{border-bottom:none}
+}
+.ok{color:#3fb950}.warn{color:#d29922}.bad{color:#f85149}
+.dim{color:#8b949e}.empty{padding:20px;text-align:center;color:#8b949e}
+.panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 14px;margin-bottom:16px}
+.panel .k{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between}
+.panel svg{display:block;width:100%;height:48px;margin-top:8px}
+.bar{height:8px;background:#21262d;border-radius:4px;overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;background:#3fb950;border-radius:4px;transition:width .4s}
+.copy{cursor:pointer;border-bottom:1px dotted #8b949e}.copy:hover{color:#e6edf3}
+.lnk{color:#58a6ff;text-decoration:none}.lnk:hover{text-decoration:underline}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#238636;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);z-index:60}
+/* live graphs + miner cards */
+#gWrap{transition:opacity .2s}#gWrap.loading .chart{opacity:.55}
+.rangebar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 12px}
+.rbtn{background:#21262d;border:1px solid #30363d;color:#adbac7;font:inherit;font-size:12px;padding:4px 11px;border-radius:6px;cursor:pointer}
+.rbtn:hover{color:#e6edf3;border-color:#58a6ff}.rbtn.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.live{margin-left:auto;color:#8b949e;font-size:12px}.live.bad{color:#f85149}
+.chart{position:relative;margin-top:6px}.chart svg{display:block;width:100%;outline:none}
+.chart svg:focus-visible{outline:2px solid #58a6ff;outline-offset:2px;border-radius:4px}
+.gempty{display:flex;align-items:center;justify-content:center;text-align:center;color:#8b949e;font-size:12px;padding:0 12px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:#adbac7;margin-top:6px}
+.legend b{color:#e6edf3;font-variant-numeric:tabular-nums}
+.lkey{display:inline-block;width:16px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
+.lkey.dash{border-top-style:dashed}
+.tip{position:absolute;pointer-events:none;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:6px 9px;font-size:12px;white-space:nowrap;z-index:5;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.tip .t{color:#8b949e;margin-bottom:2px}.tip .row{display:flex;align-items:center;gap:6px}
+.tip b{color:#e6edf3;font-variant-numeric:tabular-nums}
+.charts3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:12px;margin-bottom:16px}
+.charts3 .panel{margin-bottom:0}
+details.tbl summary{cursor:pointer;color:#58a6ff;font-size:12px;margin-top:8px}
+details.tbl table{margin-top:8px}
+.mhead{margin:8px 0 10px;font-size:15px}
+.mcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:12px;margin-bottom:20px;align-items:start}
+.mcard{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 14px}
+.mh{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.mh[role=button]{cursor:pointer}.mh:focus-visible{outline:2px solid #58a6ff;outline-offset:3px;border-radius:4px}
+.mn{font-weight:700;font-size:15px;word-break:break-word}.mm{color:#8b949e;font-size:12px;word-break:break-word}
+.mhr{display:flex;align-items:center;gap:8px;flex:none}.badge{font-size:12px;white-space:nowrap}.chev{color:#8b949e;font-size:12px}
+.mgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;margin-top:10px}
+.mcard .mh[role=button]~.mgrid{cursor:pointer}
+.mgrid .k{color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.mgrid .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mgrid .v small{color:#8b949e;font-weight:600;font-size:11px}
+.mnote{color:#8b949e;font-size:12px;margin-top:8px}
+.monline{color:#8b949e;font-size:12px;margin:-8px 0 20px}.monline b{color:#adbac7;font-weight:600}
+.mrej{margin-top:8px;font-size:12px;color:#8b949e}.mrej b{color:#e6edf3;font-weight:600}
+.mfw{margin-top:8px;font-size:12px;color:#8b949e;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
+.mfw b{color:#e6edf3;font-weight:600}.mfw a{color:#58a6ff;text-decoration:none}.mfw a:hover{text-decoration:underline}
+.mcharts{margin-top:12px;border-top:1px solid #21262d;padding-top:10px}
+.mcharts .sub{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-top:8px}
+</style></head><body>
+<header><h1>Axe<span>Pool</span> BTC</h1>
+<div class="hbtns"><a class="btn" href="/config">&#9881; Settings</a></div></header>
+<div class="wrap">
+<div class="editbar"><button id="editBtn" class="editbtn" onclick="toggleEdit()">Edit layout</button>
+<div id="removed" class="removed" hidden></div></div>
+<div class="groups"><div class="group" id="grpA"></div><div class="group" id="grpB"></div></div>
+<div class="stats" id="odds"></div>
+<div class="stats" id="lifetime"></div>
+<div class="cards" id="cards"></div>
+<div id="gWrap">
+<div class="rangebar" role="group" aria-label="Graph time range">
+<button class="rbtn" data-r="1h">1h</button><button class="rbtn" data-r="6h">6h</button><button class="rbtn" data-r="24h">24h</button><button class="rbtn" data-r="7d">7d</button><button class="rbtn" data-r="30d">30d</button><button class="rbtn" data-r="1y">1y</button>
+<span class="live" id="gLive" aria-live="polite">Loading graphs…</span></div>
+<div class="panel"><div class="k"><span>Pool hashrate <span class="dim">(5-min avg)</span></span><span id="hashNow"></span></div>
+<div class="legend" id="lgHash" hidden></div><div class="chart" id="chHash"></div>
+<details class="tbl" id="hashTbl"><summary>Show as table</summary><div id="hashTblBody"></div></details></div>
+<div class="charts3">
+<div class="panel"><div class="k"><span>Miners connected</span><span id="wNow"></span></div><div class="chart" id="chWorkers"></div></div>
+<div class="panel"><div class="k"><span>Power <span class="dim">(polled miners)</span></span><span id="pNow"></span></div><div class="chart" id="chPower"></div></div>
+<div class="panel"><div class="k"><span>Hottest chip</span><span id="tNow"></span></div><div class="chart" id="chTemp"></div></div>
+</div>
+<h3 class="mhead" id="mHead" hidden>Miners <span class="dim" style="font-size:12px;font-weight:400">· tap a miner for its graphs</span></h3>
+<div class="mcards" id="mcards"></div>
+<div class="monline" id="monLine" hidden></div>
+</div>
+<table><thead><tr><th>Miner</th><th>IP</th><th>Model</th><th>Payout (BTC)</th><th>Hashrate</th>
+<th>Diff</th><th>Best diff</th><th>Blocks</th><th>Accepted</th><th>Rejected</th><th>Last share</th></tr></thead>
+<tbody id="miners"></tbody></table>
+<div id="blocks"></div>
+<p class="dim" id="foot"></p>
+</div>
+<div id="toast" hidden></div>
+<script>
+function ago(s){if(s==null)return '—';s=Math.round(s);if(s<60)return s+'s';
+if(s<3600)return Math.floor(s/60)+'m '+(s%60)+'s';return Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m';}
+let editing=false;let hidden=new Set();
+const CARD_LABELS={best_diff:'Best difficulty',hr_1m:'Hashrate 1m',hr_5m:'Hashrate 5m',hr_1h:'Hashrate 1h',accepted:'Accepted',rejected:'Rejected',shares_per_sec:'Shares/s',workers:'Workers',net_diff:'Network difficulty',reward:'Block reward',expected_block:'Expected block',best_vs_block:'Best share vs block',total_hashes:'Total hashes',lifetime_avg:'Lifetime avg',mining_time:'Mining time',node:'Node',mining:'Mining',stratum_port:'Stratum port',block_height:'Block height',difficulty:'Difficulty',uptime:'Uptime'};
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function minusBtn(id){return editing?'<button class="minus" title="Hide card" onclick="hideCard(\\''+id+'\\')">&minus;</button>':'';}
+function statX(id,k,inner,hl){if(hidden.has(id))return '';return '<div class="stat'+(hl?' hl':'')+'" data-card="'+id+'">'+minusBtn(id)+'<div class="k">'+k+'</div>'+inner+'</div>';}
+function stat(id,k,v,hl){return statX(id,k,'<div class="v">'+v+'</div>',hl);}
+function card(id,k,v,cls){if(hidden.has(id))return '';return '<div class="card" data-card="'+id+'">'+minusBtn(id)+'<div class="k">'+k+'</div><div class="v '+(cls||'')+'">'+v+'</div></div>';}
+async function loadPrefs(){try{const r=await (await fetch('/ui-prefs')).json();hidden=new Set(r.hidden_cards||[]);}catch(e){}}
+async function savePrefs(){try{await fetch('/ui-prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({hidden_cards:[...hidden]})});}catch(e){}}
+function renderRemoved(){
+ const el=document.getElementById('removed');
+ if(!editing){el.hidden=true;el.innerHTML='';return;}
+ el.hidden=false;const ids=[...hidden];
+ el.innerHTML='<span class="rlabel">Hidden'+(ids.length?' — tap to restore:':': none')+'</span>'+
+  ids.map(id=>'<button class="chip" data-id="'+esc(id)+'" onclick="showCard(this.dataset.id)">+ '+esc(CARD_LABELS[id]||id)+'</button>').join('');
+}
+function toggleEdit(){editing=!editing;const b=document.getElementById('editBtn');b.textContent=editing?'Done':'Edit layout';b.classList.toggle('active',editing);document.body.classList.toggle('editing',editing);renderRemoved();tick();}
+function hideCard(id){hidden.add(id);savePrefs();renderRemoved();tick();}
+function showCard(id){hidden.delete(id);savePrefs();renderRemoved();tick();}
+function humanHR(h){if(!h)return '0 <small>H/s</small>';const u=['H','KH','MH','GH','TH','PH'];let i=0;while(h>=1000&&i<u.length-1){h/=1000;i++;}return h.toFixed(2)+' <small>'+u[i]+'/s</small>';}
+function humanNum(n){if(!n)return '0';const u=['','K','M','G','T','P'];let i=0;while(n>=1000&&i<u.length-1){n/=1000;i++;}return n.toFixed(i?2:0)+(u[i]?' <small>'+u[i]+'</small>':'');}
+function humanHashes(h){if(!h)return '0 <small>H</small>';const u=['H','KH','MH','GH','TH','PH','EH','ZH'];let i=0;while(h>=1000&&i<u.length-1){h/=1000;i++;}return h.toFixed(2)+' <small>'+u[i]+'</small>';}
+function shortaddr(a){if(!a)return '<span class="bad">— none</span>';return a.length>22?a.slice(0,12)+'…'+a.slice(-6):a;}
+function copyAddr(a){if(!a)return '<span class="bad">— none</span>';return '<span class="copy" title="Click to copy '+esc(a)+'" data-a="'+esc(a)+'" onclick="cp(this.dataset.a)">'+esc(shortaddr(a))+'</span>';}
+let _toastT;function toast(m){const el=document.getElementById('toast');if(!el)return;el.textContent=m;el.hidden=false;clearTimeout(_toastT);_toastT=setTimeout(()=>{el.hidden=true;},1500);}
+function cp(t){
+ let ok=false;
+ try{if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t);ok=true;}}catch(e){}
+ if(!ok){try{const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();ok=document.execCommand('copy');document.body.removeChild(ta);}catch(e){}}
+ toast(ok?'Copied address':'Copy failed — long-press to select');
+}
+function humanTime(s){if(!isFinite(s)||s<=0)return '—';const y=s/31557600;if(y>=1)return y>=1000?(y/1000).toFixed(1)+' <small>k yr</small>':y.toFixed(y>=10?0:1)+' <small>yr</small>';const d=s/86400;if(d>=1)return d.toFixed(d>=10?0:1)+' <small>d</small>';const h=s/3600;if(h>=1)return h.toFixed(1)+' <small>h</small>';return Math.max(1,Math.round(s/60))+' <small>min</small>';}
+function humanSpan(s){s=Math.round(s);const d=Math.floor(s/86400);const h=Math.floor(s%86400/3600);const m=Math.floor(s%3600/60);if(d)return d+'d '+h+'h';if(h)return h+'h '+m+'m';return m+'m';}
+// ===== Live graphs (/series) and miner cards (/status + /devices) =====
+// Colours validated with the dataviz palette checker on the #161b22 panel:
+// lightness band, CVD separation and contrast all pass. The reported series is
+// also dashed, so identity never rests on colour alone.
+const C_POOL='#2ea043',C_REP='#388bfd';
+const RANGES=['1h','6h','24h','7d','30d','1y'];
+const SPAN={'1h':3600,'6h':21600,'24h':86400,'7d':604800,'30d':2592000,'1y':31536000};
+let gRange='1h';
+try{const r=localStorage.getItem('axepool.range');if(RANGES.indexOf(r)>=0)gRange=r;}catch(e){}
+const gSeries={};           // miner key ('' = pool) -> {range,bucket,ix,points,fetched}
+let gDevices=null,gStatus=null,gOpen=null,gBusy=false,gPending=false;
+const mEls={};              // card key -> element (kept, so open graphs survive refreshes)
+
+function hrTxt(h,ax){if(h==null||!isFinite(h))return '—';if(h<=0)return ax?'0':'0 H/s';const u=['H','KH','MH','GH','TH','PH','EH'];let i=0;while(h>=1000&&i<u.length-1){h/=1000;i++;}return (ax?+h.toFixed(h>=10?0:1):h.toFixed(2))+' '+u[i]+'/s';}
+function wTxt(v,ax){return v==null?'—':(ax?v.toFixed(0):v.toFixed(1))+' W';}
+function cTxt(v,ax){return v==null?'—':(ax?v.toFixed(0)+'°':v.toFixed(1)+' °C');}
+function nTxt(v){return v==null?'—':String(Math.round(v));}
+function tLabel(t,span){const d=new Date(t*1000);return span<=86400?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString([],{month:'short',day:'numeric'});}
+function tFull(t,span){const d=new Date(t*1000);
+ if(span<=3600)return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+ if(span<=86400)return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+ return d.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
+function niceMax(v){if(!(v>0))return 1;const e=Math.pow(10,Math.floor(Math.log10(v)));const f=v/e;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*e;}
+function lastVal(pts){for(let i=pts.length-1;i>=0;i--){if(pts[i][1]!=null)return pts[i][1];}return null;}
+
+async function loadSeries(key){
+ const rg=gRange,span=SPAN[rg],now=Date.now()/1000;
+ let s=gSeries[key];
+ const fresh=!s||s.range!==rg;
+ // The 1-minute and 1-hour tables change at most once a minute.
+ if(!fresh&&rg!=='1h'&&now-s.fetched<60)return s;
+ const inc=!fresh&&rg==='1h'&&s.points.length>0;
+ let url='/series?range='+rg+'&miner='+encodeURIComponent(key);
+ if(inc)url+='&since='+s.points[s.points.length-1][0];
+ const r=await (await fetch(url)).json();
+ if(!r||!Array.isArray(r.points))throw new Error((r&&r.error)||'series fetch failed');
+ if(rg!==gRange)return null;                 // range changed while this was in flight
+ if(inc){s.points=s.points.concat(r.points);}
+ else{const ix={};r.fields.forEach((f,i)=>{ix[f]=i;});s={range:rg,bucket:r.bucket,ix:ix,points:r.points};gSeries[key]=s;}
+ s.fetched=now;
+ const cut=now-span;let k=0;while(k<s.points.length&&s.points[k][0]<cut)k++;
+ if(k)s.points=s.points.slice(k);
+ return s;
+}
+function col(s,f,scale){const i=s.ix[f];return s.points.map(p=>[p[0],p[i]==null?null:p[i]*(scale||1)]);}
+
+function drawChart(box,cfg){
+ const W=Math.max(220,Math.round(box.clientWidth||300)),H=cfg.h,L=50,R=10,T=10,B=20;
+ const now=Date.now()/1000,t0=now-cfg.span,t1=now;
+ let mx=0,n=0;cfg.series.forEach(s=>s.pts.forEach(p=>{if(p[1]!=null){n++;if(p[1]>mx)mx=p[1];}}));
+ if(!n){box.innerHTML='<div class="gempty" style="height:'+H+'px">'+esc(cfg.empty)+'</div>';return;}
+ let top,ticks=4;
+ if(cfg.int){top=Math.max(2,Math.ceil(mx*1.1));ticks=top<=4?top:4;top=Math.ceil(top/ticks)*ticks;}
+ else{top=niceMax(mx*1.08);}
+ const X=t=>L+(t-t0)/(t1-t0)*(W-L-R),Y=v=>T+(1-v/top)*(H-T-B);
+ let g='';
+ for(let i=0;i<=ticks;i++){const v=top*i/ticks,y=Y(v).toFixed(1);
+  g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'" stroke="#21262d"/>'
+   +'<text x="'+(L-6)+'" y="'+(+y+3.5)+'" text-anchor="end" fill="#8b949e" font-size="10">'+esc(cfg.fmt(v,true))+'</text>';}
+ const nx=W<420?3:5;
+ for(let i=0;i<nx;i++){const t=t0+(t1-t0)*i/(nx-1),x=X(t).toFixed(1);
+  g+='<text x="'+x+'" y="'+(H-5)+'" text-anchor="'+(i===0?'start':i===nx-1?'end':'middle')+'" fill="#8b949e" font-size="10">'+esc(tLabel(t,cfg.span))+'</text>';}
+ const gap=cfg.bucket*2.5;     // a longer silence (pool or miner down) breaks the line
+ cfg.series.forEach(s=>{
+  let d='',dots='',prev=null;const P=s.pts;
+  for(let i=0;i<P.length;i++){const p=P[i];if(p[1]==null){prev=null;continue;}
+   const x=X(p[0]).toFixed(1),y=Y(p[1]).toFixed(1),brk=!prev||p[0]-prev[0]>gap;
+   if(brk){const q=P[i+1];if(!q||q[1]==null||q[0]-p[0]>gap)dots+='<circle cx="'+x+'" cy="'+y+'" r="2" fill="'+s.color+'"/>';}
+   d+=(brk?'M':'L')+x+' '+y+' ';prev=p;}
+  if(d)g+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"'+(s.dash?' stroke-dasharray="5 4"':'')+'/>';
+  g+=dots;});
+ g+='<g class="hov" visibility="hidden"><line class="hair" y1="'+T+'" y2="'+(H-B)+'" stroke="#8b949e"/>'
+  +cfg.series.map((s,i)=>'<circle class="hd" data-i="'+i+'" r="4" fill="'+s.color+'" stroke="#161b22" stroke-width="2"/>').join('')+'</g>';
+ box.innerHTML='<svg tabindex="0" role="img" aria-label="'+esc(cfg.label)+'. Hover, or focus and use the arrow keys, for values." width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="height:'+H+'px;touch-action:pan-y">'+g+'</svg><div class="tip" hidden></div>';
+ const svg=box.querySelector('svg'),tip=box.querySelector('.tip'),hov=svg.querySelector('.hov');
+ const seen={};cfg.series.forEach(s=>s.pts.forEach(p=>{if(p[1]!=null)seen[p[0]]=1;}));
+ const ts=Object.keys(seen).map(Number).sort((a,b)=>a-b);
+ const show=t=>{
+  if(t==null){hov.setAttribute('visibility','hidden');tip.hidden=true;return;}
+  box._hoverT=t;const x=X(t);hov.setAttribute('visibility','visible');
+  const hair=hov.querySelector('.hair');hair.setAttribute('x1',x);hair.setAttribute('x2',x);
+  tip.textContent='';const hd=document.createElement('div');hd.className='t';hd.textContent=tFull(t,cfg.span);tip.appendChild(hd);
+  cfg.series.forEach((s,i)=>{
+   const p=s.pts.find(q=>q[0]===t),v=p?p[1]:null,c=hov.querySelector('.hd[data-i="'+i+'"]');
+   if(v==null)c.setAttribute('visibility','hidden');else{c.setAttribute('visibility','visible');c.setAttribute('cx',x);c.setAttribute('cy',Y(v));}
+   const row=document.createElement('div');row.className='row';
+   const k=document.createElement('span');k.className='lkey'+(s.dash?' dash':'');k.style.borderTopColor=s.color;
+   const b=document.createElement('b');b.textContent=cfg.fmt(v);
+   const nm=document.createElement('span');nm.className='dim';nm.textContent=s.name;
+   row.appendChild(k);row.appendChild(b);row.appendChild(nm);tip.appendChild(row);});
+  tip.hidden=false;const tw=tip.offsetWidth;let left=x+12;if(left+tw>W)left=x-12-tw;if(left<0)left=0;
+  tip.style.left=left+'px';tip.style.top=T+'px';};
+ const nearest=px=>{if(!ts.length)return null;const t=t0+(px-L)/(W-L-R)*(t1-t0);let lo=0,hi=ts.length-1;
+  while(hi-lo>1){const m=(lo+hi)>>1;if(ts[m]<t)lo=m;else hi=m;}
+  return Math.abs(ts[lo]-t)<=Math.abs(ts[hi]-t)?ts[lo]:ts[hi];};
+ const at=e=>{const r=svg.getBoundingClientRect();show(nearest((e.clientX-r.left)*W/r.width));};
+ svg.addEventListener('pointermove',at);svg.addEventListener('pointerdown',at);
+ svg.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse'){box._hoverT=null;show(null);}});
+ svg.addEventListener('focus',()=>show(box._hoverT!=null&&seen[box._hoverT]?box._hoverT:ts[ts.length-1]));
+ svg.addEventListener('blur',()=>{box._hoverT=null;show(null);});
+ svg.addEventListener('keydown',e=>{if(!ts.length)return;let i=ts.indexOf(box._hoverT);if(i<0)i=ts.length-1;
+  if(e.key==='ArrowLeft')i=Math.max(0,i-1);else if(e.key==='ArrowRight')i=Math.min(ts.length-1,i+1);
+  else if(e.key==='Escape'){svg.blur();return;}else return;e.preventDefault();show(ts[i]);});
+ if(box._hoverT!=null&&seen[box._hoverT])show(box._hoverT);
+}
+
+function legend(el,series){
+ el.textContent='';if(series.length<2){el.hidden=true;return;}el.hidden=false;
+ series.forEach(s=>{const it=document.createElement('span');
+  const k=document.createElement('span');k.className='lkey'+(s.dash?' dash':'');k.style.borderTopColor=s.color;
+  const nm=document.createElement('span');nm.textContent=s.name+' ';
+  const v=document.createElement('b');v.textContent=s.now;
+  it.appendChild(k);it.appendChild(nm);it.appendChild(v);el.appendChild(it);});
+}
+function setNow(id,txt){const el=document.getElementById(id);if(el)el.textContent=txt;}
+
+function hashSeries(s){
+ const pool=col(s,'hr_5m'),rep=col(s,'reported_ghs',1e9);
+ const out=[{name:'Pool-measured',color:C_POOL,pts:pool,now:hrTxt(lastVal(pool))}];
+ if(rep.some(p=>p[1]!=null))out.push({name:'Miner-reported',color:C_REP,dash:true,pts:rep,now:hrTxt(lastVal(rep))});
+ return out;
+}
+
+function renderPool(){
+ const s=gSeries[''];if(!s||s.range!==gRange)return;
+ const span=SPAN[s.range],hs=hashSeries(s);
+ legend(document.getElementById('lgHash'),hs);setNow('hashNow',hs[0].now);
+ drawChart(document.getElementById('chHash'),{series:hs,fmt:hrTxt,h:190,bucket:s.bucket,span:span,label:'Pool hashrate',
+  empty:'Collecting data. The first points appear within about 10 seconds of a miner connecting.'});
+ const w=col(s,'workers'),pw=col(s,'power_w'),tc=col(s,'chip_temp_c');
+ setNow('wNow',nTxt(lastVal(w)));setNow('pNow',wTxt(lastVal(pw)));setNow('tNow',cTxt(lastVal(tc)));
+ drawChart(document.getElementById('chWorkers'),{series:[{name:'Miners',color:C_POOL,pts:w}],fmt:nTxt,int:true,h:120,bucket:s.bucket,span:span,label:'Miners connected',empty:'No data yet'});
+ const noApi='Needs miner monitoring: miners whose API AxePool can read (Settings).';
+ drawChart(document.getElementById('chPower'),{series:[{name:'Power',color:C_POOL,pts:pw}],fmt:wTxt,h:120,bucket:s.bucket,span:span,label:'Total power',empty:noApi});
+ drawChart(document.getElementById('chTemp'),{series:[{name:'Hottest chip',color:C_POOL,pts:tc}],fmt:cTxt,h:120,bucket:s.bucket,span:span,label:'Hottest chip temperature',empty:noApi});
+ if(document.getElementById('hashTbl').open)renderTable(s);
+}
+
+function renderTable(s){
+ const rows=s.points.slice(-30).reverse(),ix=s.ix,span=SPAN[s.range];
+ const v=(p,f,sc)=>p[ix[f]]==null?null:p[ix[f]]*(sc||1);
+ document.getElementById('hashTblBody').innerHTML=rows.length?('<table><thead><tr><th>Time</th><th>Pool-measured</th><th>Miner-reported</th><th>Miners</th><th>Power</th><th>Hottest chip</th></tr></thead><tbody>'
+  +rows.map(p=>'<tr><td data-label="Time">'+esc(tFull(p[0],span))+'</td><td data-label="Pool-measured">'+esc(hrTxt(v(p,'hr_5m')))
+   +'</td><td data-label="Miner-reported">'+esc(hrTxt(v(p,'reported_ghs',1e9)))+'</td><td data-label="Miners">'+esc(nTxt(v(p,'workers')))
+   +'</td><td data-label="Power">'+esc(wTxt(v(p,'power_w')))+'</td><td data-label="Hottest chip">'+esc(cTxt(v(p,'chip_temp_c')))+'</td></tr>').join('')
+  +'</tbody></table><p class="dim" style="font-size:12px">Newest 30 points of this range.</p>'):'<p class="dim">No data yet.</p>';
+}
+
+// ---- miner cards ----
+const STATE={mining:['ok','● Mining'],idle:['warn','○ Idle'],stopped:['warn','■ Stopped'],paused:['warn','‖ Paused'],
+ overheat:['bad','▲ Overheating'],offline:['bad','✕ API unreachable'],pending:['dim','… Checking API']};
+function badge(st){const v=STATE[st]||['dim',st];return '<span class="badge '+v[0]+'">'+esc(v[1])+'</span>';}
+function mc(k,v){return '<div><div class="k">'+k+'</div><div class="v">'+v+'</div></div>';}
+function fwDate(iso){const d=iso?new Date(iso):null;return d&&!isNaN(d)?d.toLocaleDateString([],{year:'numeric',month:'short',day:'numeric'}):null;}
+function fwLine(d){
+ // Read-only: shows the result of the server's GitHub check and links to the notes.
+ const f=d&&d.firmware_status,dm=d&&d.miner;if(!f||!dm)return '';
+ const cur='Firmware <b>'+esc(dm.version||'?')+'</b>';
+ const checked=f.checked_at?'checked '+ago(Date.now()/1000-f.checked_at)+' ago':'';
+ const failed=f.error?'last check failed: '+esc(f.error):'';
+ const link=(f.url&&String(f.url).indexOf('https://github.com/')===0)?'<a href="'+esc(f.url)+'" target="_blank" rel="noopener noreferrer">Release notes ↗</a>':'';
+ const rel=fwDate(f.published_at);
+ let st;
+ if(f.state==='current')st='<span class="badge ok">✓ Up to date</span>';
+ else if(f.state==='update')st='<span class="badge warn">⬆ Update available: <b>'+esc(f.latest)+'</b></span>'+(rel?'<span>released '+esc(rel)+'</span>':'')+link;
+ else if(f.state==='ahead')st='<span class="badge">Newer than latest stable '+esc(f.latest)+' (beta or test build)</span>'+link;
+ else if(f.state==='custom')st='<span class="badge">Custom build of '+esc(f.latest)+'</span>';
+ else if(f.state==='unchecked')st='<span>'+(f.error?'Can’t check yet':'Checking for updates…')+'</span>';
+ else if(f.state==='off')st='<span>Update check off (Settings)</span>';
+ else st='<span>Can’t compare ('+esc(f.reason||'unknown')+')</span>';
+ const tail=[f.state==='off'?'':checked,failed].filter(Boolean).join(' · ');
+ return '<div class="mfw">'+cur+st+(tail?'<span>· '+tail+'</span>':'')+'</div>';
+}
+function rejLine(m){
+ // Why this miner's shares were rejected, for the current connection.
+ if(!m||!m.rejects||!m.rejected)return '';
+ const r=m.rejects,parts=[['low_diff','low difficulty'],['stale','stale'],['duplicate','duplicate'],['other','other']]
+  .filter(p=>r[p[0]]>0).map(p=>'<b>'+esc(humanNum(r[p[0]]))+'</b> '+p[1]);
+ return parts.length?'<div class="mrej">Rejected this connection: '+parts.join(' · ')+'</div>':'';
+}
+function devFor(id){return gDevices?(gDevices.miners||[]).find(d=>d.linked_identity===id)||null:null;}
+
+function cardHtml(m,d){
+ const dm=d&&d.miner?d.miner:null;
+ const fw=dm?(dm.firmware==='nerdqaxe'?'NerdQaxe':'AxeOS')+(dm.version?' '+dm.version:''):null;
+ const model=(dm&&dm.model)||(m&&m.model)||null;
+ const name=m?m.worker:((dm&&dm.hostname)||(d&&d.address)||'miner');
+ const meta=[model,fw,m?m.ip:(d?d.address:null)].filter(Boolean).map(esc).join(' · ');
+ const st=d?badge(d.status):(m?'<span class="badge ok">● Connected</span>':'');
+ const rep=dm&&dm.hashrate_ghs!=null?dm.hashrate_ghs*1e9:null;
+ const exp=dm&&dm.expected_ghs?dm.expected_ghs*1e9:null;
+ const eff=(dm&&dm.power_w!=null&&dm.hashrate_ghs>0)?dm.power_w/(dm.hashrate_ghs/1000):null;
+ const rejPct=m&&(m.accepted+m.rejected)>0?m.rejected/(m.accepted+m.rejected)*100:null;
+ const T=(v,u,dp)=>v==null?'—':v.toFixed(dp)+' <small>'+u+'</small>';
+ let cells=
+   mc('Pool (5 min)',m?humanHR(m.hashrate_hps):'—')
+  +mc('Reported',rep!=null?humanHR(rep):'—')
+  +mc('Expected',exp!=null?(dm.expected_derived?'≈ ':'')+humanHR(exp):'—')
+  +mc('Chip',T(dm&&dm.chip_temp_c,'°C',1))
+  +mc('VR',T(dm&&dm.vr_temp_c,'°C',1))
+  +mc('Power',T(dm&&dm.power_w,'W',1))
+  +mc('Efficiency',T(eff,'J/TH',1))
+  +mc('Difficulty',m&&m.difficulty!=null?humanNum(m.difficulty):'—')
+  +mc('Shares/min',m&&m.shares_per_min!=null?m.shares_per_min.toFixed(1):'—')
+  +mc('Rejects',rejPct==null?'—':rejPct.toFixed(rejPct<1?2:1)+' <small>%</small>')
+  +mc('Best',m?humanNum(m.best_diff):(dm?humanNum(dm.best_diff):'—'))
+  +mc('Last share',m?ago(m.last_share_ago):'—');
+ let note='';
+ if(!m)note='Not mining to AxePool'+(dm&&dm.on_fallback_pool?' (on its fallback pool)':'')+'. Shown because its address is listed in Settings.';
+ else if(!d)note=gDevices&&gDevices.enabled===false?'Miner monitoring is off (Settings), so only pool figures are shown.'
+  :'Miner API not reached yet. If this lasts, add the miner’s address under Settings → Miner monitoring.';
+ else if(d.status==='offline')note='Miner API unreachable: '+(d.last_error||'no answer')+'. Pool figures are still live.';
+ else if(dm&&dm.on_fallback_pool)note='The miner reports it is on its fallback pool.';
+ return {rej:rejLine(m),fw:fwLine(d),head:'<div><div class="mn">'+esc(name)+'</div><div class="mm">'+meta+'</div></div><div class="mhr">'+st
+   +(m?'<span class="chev" aria-hidden="true">'+(gOpen===m.identity?'▴':'▾')+'</span>':'')+'</div>',cells:cells,note:note};
+}
+
+function ensureCard(key,openable){
+ let el=mEls[key];if(el)return el;
+ el=document.createElement('div');el.className='mcard';
+ el.innerHTML='<div class="mh"></div><div class="mgrid"></div><div class="mrejbox"></div><div class="mfwbox"></div><div class="mnote" hidden></div>'
+  +'<div class="mcharts" hidden><div class="sub">Hashrate <span class="dim">(this miner)</span></div><div class="legend"></div><div class="chart"></div>'
+  +'<div class="sub">Hottest chip</div><div class="chart"></div></div>';
+ if(openable){const h=el.querySelector('.mh');h.setAttribute('role','button');h.tabIndex=0;
+  const go=()=>toggleMiner(key);h.addEventListener('click',go);el.querySelector('.mgrid').addEventListener('click',go);
+  h.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});}
+ mEls[key]=el;return el;
+}
+
+function renderCards(){
+ const box=document.getElementById('mcards');if(!box)return;
+ const miners=((gStatus&&gStatus.miners)||[]).filter(m=>m.authorized&&m.identity).sort((a,b)=>String(a.worker).localeCompare(String(b.worker)));
+ const ids=new Set(miners.map(m=>m.identity));
+ const extra=gDevices?(gDevices.miners||[]).filter(d=>!d.linked_identity||!ids.has(d.linked_identity)).filter(d=>d.source==='manual'||d.miner):[];
+ const want=[];
+ miners.forEach(m=>{const el=ensureCard(m.identity,true),c=cardHtml(m,devFor(m.identity));want.push([m.identity,el,c]);});
+ extra.forEach(d=>{const k='dev:'+d.address,el=ensureCard(k,false),c=cardHtml(null,d);want.push([k,el,c]);});
+ const keep=new Set(want.map(w=>w[0]));
+ Object.keys(mEls).forEach(k=>{if(!keep.has(k)){mEls[k].remove();delete mEls[k];if(gOpen===k)gOpen=null;}});
+ want.forEach(([k,el,c])=>{
+  el.querySelector('.mh').innerHTML=c.head;el.querySelector('.mh').setAttribute('aria-expanded',gOpen===k?'true':'false');
+  el.querySelector('.mgrid').innerHTML=c.cells;el.querySelector('.mrejbox').innerHTML=c.rej;el.querySelector('.mfwbox').innerHTML=c.fw;
+  const n=el.querySelector('.mnote');n.hidden=!c.note;n.textContent=c.note;
+  el.querySelector('.mcharts').hidden=gOpen!==k;box.appendChild(el);});
+ document.getElementById('mHead').hidden=!want.length;
+ const mons=(gStatus&&gStatus.monitors)||[],ml=document.getElementById('monLine');
+ ml.hidden=!mons.length;
+ if(mons.length)ml.innerHTML='Monitor connected: '+mons.map(x=>'<b>'+esc(x.name)+'</b>').join(', ')
+  +' <span>· watches job timing only, never mines, not counted as a miner</span>';
+}
+
+function renderOpen(){
+ if(!gOpen||!mEls[gOpen])return;const s=gSeries[gOpen];if(!s||s.range!==gRange)return;
+ const el=mEls[gOpen],charts=el.querySelectorAll('.mcharts .chart'),hs=hashSeries(s);
+ legend(el.querySelector('.mcharts .legend'),hs);
+ drawChart(charts[0],{series:hs,fmt:hrTxt,h:150,bucket:s.bucket,span:SPAN[s.range],label:'Miner hashrate',empty:'No data for this miner in this range yet.'});
+ drawChart(charts[1],{series:[{name:'Hottest chip',color:C_POOL,pts:col(s,'chip_temp_c')}],fmt:cTxt,h:110,bucket:s.bucket,span:SPAN[s.range],label:'Miner chip temperature',
+  empty:'Needs the miner’s API (Settings → Miner monitoring).'});
+}
+
+function toggleMiner(key){
+ gOpen=gOpen===key?null:key;renderCards();
+ if(gOpen){const s=gSeries[gOpen];if(s&&s.range===gRange)renderOpen();
+  loadSeries(gOpen).then(()=>renderOpen()).catch(()=>{});}
+}
+
+async function gRefresh(force){
+ if(document.hidden&&!force)return;
+ if(gBusy){gPending=true;return;}
+ gBusy=true;const live=document.getElementById('gLive');
+ try{
+  try{const dv=await (await fetch('/devices')).json();if(dv&&Array.isArray(dv.miners))gDevices=dv;}catch(e){}
+  await loadSeries('');
+  if(gOpen)await loadSeries(gOpen);
+  renderPool();renderOpen();renderCards();
+  live.textContent=gRange==='1h'?'● Live · every 10 s':'Updates every minute';live.className='live';
+ }catch(e){live.textContent='Graph update failed: '+e.message;live.className='live bad';}
+ finally{gBusy=false;document.getElementById('gWrap').classList.remove('loading');
+  if(gPending){gPending=false;gRefresh(true);}}
+}
+
+function setRange(r){
+ if(RANGES.indexOf(r)<0||r===gRange)return;gRange=r;
+ try{localStorage.setItem('axepool.range',r);}catch(e){}
+ document.querySelectorAll('.rbtn').forEach(b=>{const on=b.dataset.r===r;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false');});
+ document.getElementById('gWrap').classList.add('loading');gRefresh(true);
+}
+
+function gInit(){
+ document.querySelectorAll('.rbtn').forEach(b=>{const on=b.dataset.r===gRange;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false');
+  b.addEventListener('click',()=>setRange(b.dataset.r));});
+ document.getElementById('hashTbl').addEventListener('toggle',()=>{const s=gSeries[''];if(s&&document.getElementById('hashTbl').open)renderTable(s);});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)gRefresh(true);});
+ let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{renderPool();renderOpen();},150);});
+ gRefresh(true);setInterval(gRefresh,10000);
+}
+
+async function tick(){
+ try{
+  const s=await (await fetch('/status')).json();
+  gStatus=s;renderCards();
+  const n=s.node, nodeCls=n.node_reachable?(n.node_ready?'ok':'warn'):'bad';
+  const nodeTxt=n.node_reachable?(n.node_ready?'Synced':'Syncing '+((n.progress||0)*100).toFixed(2)+'%'):'Unreachable';
+  const p=s.pool||{};
+  const allTime='<span class="dim" style="text-transform:none;letter-spacing:0;font-size:10px"> · all-time</span>';
+  document.getElementById('grpA').innerHTML=
+    stat('best_diff','Best difficulty'+allTime,humanNum(p.best_diff),true)
+   +stat('hr_1m','Hashrate 1m',humanHR(p.hashrate_1m))
+   +stat('hr_5m','Hashrate 5m',humanHR(p.hashrate_5m),true)
+   +stat('hr_1h','Hashrate 1h',humanHR(p.hashrate_1h));
+  document.getElementById('grpB').innerHTML=
+    stat('accepted','Accepted'+allTime,humanNum(p.accepted))
+   +stat('rejected','Rejected'+allTime,humanNum(p.rejected))
+   +stat('shares_per_sec','Shares/s',(p.shares_per_sec||0).toFixed(2))
+   +stat('workers','Workers',p.workers||0);
+  const reward = n.coinbase_value!=null ? (n.coinbase_value/1e8) : null;
+  const hrEff = p.hashrate_1h||p.hashrate_5m||p.hashrate_1m||0;
+  const ttb = (n.difficulty && hrEff>0) ? n.difficulty*Math.pow(2,32)/hrEff : NaN;
+  const bestPct = (n.difficulty && p.best_diff>0) ? (p.best_diff/n.difficulty*100) : null;
+  const bestRatio = (n.difficulty && p.best_diff>0) ? (n.difficulty/p.best_diff) : null;
+  const bestTxt = bestRatio==null ? '—'
+                : bestRatio<=1 ? '<span class="ok">block!</span>'
+                : '1 in '+humanNum(bestRatio);
+  document.getElementById('odds').innerHTML=
+    stat('net_diff','Network difficulty', n.difficulty!=null?humanNum(n.difficulty):'—')
+   +stat('reward','Block reward', reward!=null?reward.toFixed(3)+' <small>BTC</small>':'—')
+   +stat('expected_block','Expected block', humanTime(ttb), true)
+   +statX('best_vs_block','Best share vs block','<div class="v">'+bestTxt+'</div>'
+     +(bestPct!=null?'<div class="bar"><i style="width:'+Math.min(100,Math.max(0.6,bestPct)).toFixed(2)+'%"></i></div>':''));
+  document.getElementById('lifetime').innerHTML=
+    stat('total_hashes','Total hashes'+allTime,humanHashes(p.total_hashes||0),true)
+   +stat('lifetime_avg','Lifetime avg'+allTime,humanHR(p.lifetime_avg_hps||0))
+   +stat('mining_time','Mining time'+allTime,humanTime(p.mining_seconds||0));
+  let c='';
+  c+=card('node','Node', nodeTxt, nodeCls);
+  c+=card('mining','Mining', n.mode==='real'?'● Live':'○ Mock', n.mode==='real'?'ok':'warn');
+  c+=card('stratum_port','Stratum port',s.server.stratum_port);
+  c+=card('block_height','Block height',n.blocks!=null?n.blocks.toLocaleString():'—');
+  c+=card('difficulty','Difficulty',(n.vardiff&&n.vardiff.enabled)?('Auto · '+n.vardiff.target_spm+'/min'):('Fixed '+n.share_difficulty));
+  c+=card('uptime','Uptime',ago(s.server.uptime_s));
+  document.getElementById('cards').innerHTML=c;
+  const mb=document.getElementById('miners');
+  if(!s.miners.length){mb.innerHTML='<tr><td colspan="11" class="empty">No miners connected</td></tr>';}
+  else{mb.innerHTML=s.miners.map(m=>'<tr>'+
+   '<td data-label="Miner">'+esc(m.worker||'—')+(m.authorized?'':' <span class="dim">(connecting)</span>')+'</td>'+
+   '<td data-label="IP">'+esc(m.ip)+'</td>'+
+   '<td data-label="Model" class="dim">'+esc(m.model||'—')+'</td>'+
+   '<td data-label="Payout" class="dim">'+copyAddr(m.payout)+'</td>'+
+   '<td data-label="Hashrate" class="ok">'+esc(m.hashrate)+'</td>'+
+   '<td data-label="Diff" class="dim">'+(m.difficulty!=null?humanNum(m.difficulty):'—')+'</td>'+
+   '<td data-label="Best diff" class="dim">'+humanNum(m.best_diff)+'</td>'+
+   '<td data-label="Blocks"'+(m.blocks?' class="ok"':'')+'>'+(m.blocks||0)+'</td>'+
+   '<td data-label="Accepted">'+m.accepted+'</td>'+
+   '<td data-label="Rejected"'+(m.rejected?' class="warn"':'')+'>'+m.rejected+'</td>'+
+   '<td data-label="Last share">'+ago(m.last_share_ago)+'</td>'+
+   '</tr>').join('');}
+  const bl=n.recent_blocks||[];
+  document.getElementById('blocks').innerHTML = bl.length ?
+   ('<h3 style="margin:24px 0 8px">Blocks</h3><table><thead><tr><th>Miner</th><th>Height</th><th>Hash</th>'
+    +'<th>Status</th><th>Conf</th><th>Payout</th><th>When</th></tr></thead><tbody>'
+    +bl.map(b=>{
+      const acc=String(b.status).startsWith('accepted');
+      const conf=!acc?null:(b.confirmations!=null?b.confirmations:((n.blocks!=null&&b.height!=null)?Math.max(0,n.blocks-b.height+1):null));
+      const ctxt=conf==null?'—':(b.mature?conf+' · spendable':conf+' / 100');
+      const hash=b.hash||'';
+      const hcell=hash?'<a class="lnk" href="https://blockchair.com/bitcoin-cash/block/'+encodeURIComponent(hash)+'" target="_blank" rel="noopener">'+esc(hash.slice(0,20))+'…</a>':'—';
+      return '<tr>'+
+       '<td data-label="Miner">'+esc(b.worker||'—')+'</td>'+
+       '<td data-label="Height">'+esc(b.height)+'</td>'+
+       '<td data-label="Hash" class="dim">'+hcell+'</td>'+
+       '<td data-label="Status" class="'+(acc?'ok':'bad')+'">'+esc(b.status)+'</td>'+
+       '<td data-label="Conf" class="dim">'+esc(ctxt)+'</td>'+
+       '<td data-label="Payout" class="dim">'+copyAddr(b.payout)+'</td>'+
+       '<td data-label="When" class="dim">'+ago((Date.now()/1000)-b.time)+' ago</td>'+
+       '</tr>';}).join('')
+    +'</tbody></table>') : '';
+  let foot='Updated '+new Date().toLocaleTimeString();
+  if(p.mining_since){foot='Mining since '+new Date(p.mining_since*1000).toLocaleDateString()+' · '+foot;}
+  document.getElementById('foot').textContent=foot;
+ }catch(e){document.getElementById('foot').textContent='status fetch failed: '+e;}
+}
+loadPrefs().then(()=>{tick();gInit();setInterval(tick,2000);});
+</script></body></html>"""
+
+
+CONFIG_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<title>AxePool BTC · Settings</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230d1117'/><text x='16' y='24' font-size='21' text-anchor='middle' fill='%233fb950' font-family='sans-serif' font-weight='700'>B</text></svg>">
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#0d1117;color:#e6edf3;font:14px/1.5 system-ui,sans-serif}
+header{padding:16px 20px;background:#161b22;border-bottom:1px solid #30363d;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:30;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+h1{margin:0;font-size:18px}h1 span{color:#f7931a}
+a.btn{color:#58a6ff;text-decoration:none;font-size:13px;border:1px solid #30363d;padding:6px 10px;border-radius:6px}
+.wrap{padding:20px;max-width:900px;margin:0 auto}
+.grid{display:flex;flex-direction:column;gap:16px}
+.col{display:flex;flex-direction:column;gap:16px}
+@media (min-width:700px){.grid{flex-direction:row;align-items:flex-start}.col{flex:1;min-width:0}}
+.sec{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:2px 16px 16px}
+label{display:block;margin:14px 0 4px;color:#8b949e;font-size:13px}
+input{width:100%;box-sizing:border-box;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:9px 10px;border-radius:6px;font:14px system-ui}
+.row{display:flex;gap:12px}.row>div{flex:1}
+button{margin-top:20px;background:#238636;border:0;color:#fff;padding:10px 16px;border-radius:6px;font-size:14px;cursor:pointer}
+button.alt{margin-top:0;background:#21262d;border:1px solid #30363d;color:#e6edf3}
+select{width:100%;box-sizing:border-box;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:9px 10px;border-radius:6px;font:14px system-ui}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;margin:16px 0 0}
+.sec>h2:first-child{margin-top:14px}
+.inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.note{color:#8b949e;font-size:12px;margin-top:4px}
+.toggles{margin-top:12px}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid #21262d}
+.toggle:last-child{border-bottom:none}
+.toggle .tlabel{color:#e6edf3;font-size:14px}
+.toggle .txt{min-width:0}
+.toggle .note{margin-top:2px}
+.switch{position:relative;display:inline-block;width:42px;height:24px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;inset:0;background:#30363d;border-radius:24px;transition:.2s}
+.slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:#e6edf3;border-radius:50%;transition:.2s}
+.switch input:checked+.slider{background:#238636}
+.switch input:checked+.slider:before{transform:translateX(18px)}
+.switch input:focus-visible+.slider{outline:2px solid #58a6ff;outline-offset:2px}
+#save{width:100%;margin-top:16px}
+#msg{margin-top:14px}
+.diag{list-style:none;padding:0;margin:12px 0 0}
+.diag li{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #21262d;font-size:13px}
+.diag li:last-child{border-bottom:none}
+.diag .ic{flex:none;width:20px;text-align:center;font-weight:700}
+.diag .nm{flex:none;width:230px;max-width:45%;color:#e6edf3}
+.diag .dt{color:#8b949e;min-width:0;word-break:break-word}
+.diag li.pass .ic{color:#3fb950}.diag li.fail .ic{color:#f85149}.diag li.warn .ic{color:#d29922}
+.diag li.running .ic{color:#58a6ff}.diag li.skip .ic,.diag li.pending .ic{color:#484f58}
+.diag li.skip .nm,.diag li.pending .nm{color:#8b949e}
+.diagbox{margin-top:12px;padding:12px 14px;border-radius:8px;border:1px solid;font-size:13px;line-height:1.5;color:#e6edf3}
+.diagbox.bad{border-color:#f85149;background:rgba(248,81,73,.08)}
+.diagbox.warn{border-color:#d29922;background:rgba(210,153,34,.08)}
+.diagbox b{display:block;margin-bottom:2px}
+.diagbox p{margin:6px 0 0}
+</style></head><body>
+<header><h1>Axe<span>Pool</span> BTC · Settings</h1><a class="btn" href="/">&#8592; Dashboard</a></header>
+<div class="wrap">
+<div class="sec">
+<h2>Is this working?</h2>
+<div class="note">Checks the whole chain step by step: settings, the node, block building, the Stratum port, your miner and its shares. It stops at the first problem and shows a potential fix. Takes a few seconds, or up to about five minutes while it waits for your miner and its shares.</div>
+<div class="inline"><button id="diagrun" class="alt">Run checks</button><button id="diagstop" class="alt" hidden>Stop</button><span id="diagmsg" class="note"></span></div>
+<ol id="diaglist" class="diag" hidden></ol>
+<div id="diagerr" class="diagbox bad" hidden></div>
+<div id="diagwarn" class="diagbox warn" hidden></div>
+</div>
+
+<div class="grid">
+<div class="col">
+<div class="sec">
+<h2>Node RPC</h2>
+<label>Node RPC host</label><input id="bchn_rpc_host">
+<div class="row"><div><label>RPC port</label><input id="bchn_rpc_port"></div>
+<div><label>RPC user</label><input id="bchn_rpc_user"></div></div>
+<label>RPC password</label><input id="bchn_rpc_password" type="password" placeholder="leave blank to keep current">
+<div class="note" id="envnote" hidden>Greyed-out fields are provided automatically by Umbrel from your Bitcoin node app (Bitcoin Node or Bitcoin Knots) and cannot be changed here.</div>
+<div class="note">Elsewhere, use your Bitcoin node's RPC host, port, user and password. Stored in config.json, never shown again.</div>
+<div class="inline"><button id="testrpc" class="alt">Test connection</button><span id="rpcmsg" class="note"></span></div>
+</div>
+
+<div class="sec">
+<h2>Notifications</h2>
+<label>Webhook URL <span class="note">(blank = disabled)</span></label><input id="webhook_url" placeholder="https://…">
+<div class="note">A JSON POST is sent to this URL for each alert you switch on below (Discord webhook or any custom endpoint).</div>
+<div class="toggles">
+<div class="toggle"><div class="txt"><div class="tlabel">Block found</div><div class="note">The moment your hardware finds a Bitcoin block.</div></div><label class="switch"><input type="checkbox" id="notify_block"><span class="slider"></span></label></div>
+<div class="toggle"><div class="txt"><div class="tlabel">New best share</div><div class="note">When a new all-time best share difficulty is set (rare).</div></div><label class="switch"><input type="checkbox" id="notify_best_share"><span class="slider"></span></label></div>
+<div class="toggle"><div class="txt"><div class="tlabel">Miner offline</div><div class="note">When a connected miner stops sharing for over 2 minutes.</div></div><label class="switch"><input type="checkbox" id="notify_miner_offline"><span class="slider"></span></label></div>
+</div>
+<div class="inline"><button id="testhook" class="alt">Send test webhook</button><span id="hookmsg" class="note"></span></div>
+</div>
+</div>
+
+<div class="col">
+<div class="sec">
+<h2>Difficulty</h2>
+<label>Share difficulty <span class="note">(fixed value, and the vardiff starting point)</span></label><input id="share_difficulty">
+<label>Variable difficulty</label>
+<select id="vardiff_enabled"><option value="true">On — auto-tune each worker</option><option value="false">Off — use fixed difficulty</option></select>
+<div class="row"><div><label>Target shares/min</label><input id="vardiff_target_spm"></div>
+<div><label>Min diff</label><input id="vardiff_min"></div>
+<div><label>Max diff</label><input id="vardiff_max"></div></div>
+<div class="note">With vardiff on, each miner is retargeted toward the share rate above (bounded by min/max). Off pins everyone to the fixed share difficulty.</div>
+</div>
+
+<div class="sec">
+<h2>Miner monitoring</h2>
+<label>Read miners' own API</label>
+<select id="miner_api_enabled"><option value="true">On — read hashrate, temps &amp; power from each miner</option><option value="false">Off</option></select>
+<label>Check miner firmware for updates</label>
+<select id="firmware_check_enabled"><option value="true">On — compare with the latest GitHub release</option><option value="false">Off</option></select>
+<label>Extra miner addresses <span class="note">(optional)</span></label><input id="miner_api_hosts" placeholder="192.168.1.20 192.168.1.21">
+<div class="note">Read-only: AxePool only ever reads <code>/api/system/info</code> and never changes a miner's settings. Miners connected to this pool are found automatically; list a miner here only if it is missing (for example behind another router). Private LAN addresses only, separated by spaces or commas. The firmware check asks GitHub (api.github.com) for the newest stable AxeOS / NerdQaxe release at most every 6 hours; it never updates a miner.</div>
+</div>
+
+<div class="sec">
+<h2>Coinbase tag</h2>
+<label>Tag <span class="note">(blank = none)</span></label><input id="coinbase_tag" maxlength="64" placeholder="/AxePool/">
+<div class="note">Text written into every block your miners find; block explorers show it as the pool's signature. Up to 64 plain characters: letters, digits, spaces and punctuation. Applies to new work within about 30 seconds, no restart.</div>
+</div>
+
+<div class="sec">
+<h2>Network</h2>
+<div class="row"><div><label>Stratum port <span class="note">(restart)</span></label><input id="stratum_port"></div>
+<div><label>Status port <span class="note">(restart)</span></label><input id="status_port"></div></div>
+</div>
+
+<div class="sec">
+<h2>Reset stats</h2>
+<div class="note">Clears all-time best difficulty, lifetime accepted/rejected shares, total hashes and mining time. Found blocks are kept. This cannot be undone.</div>
+<div class="inline"><button id="resetstats" class="alt" style="color:#f85149;border-color:#f85149">Reset lifetime stats</button><span id="resetmsg" class="note"></span></div>
+</div>
+
+<div class="sec">
+<h2>Backup</h2>
+<div class="note">Download these settings as a JSON file, or restore them from one. The RPC password is never included in the export — after importing, re-enter it (or leave it, if you're restoring onto the same node).</div>
+<div class="inline"><button id="exportcfg" class="alt">Export settings</button><button id="importcfg" class="alt">Import settings</button><input id="importfile" type="file" accept="application/json,.json" hidden><span id="backupmsg" class="note"></span></div>
+</div>
+</div>
+</div>
+
+<button id="save">Save settings</button>
+<div id="msg"></div>
+</div>
+<script>
+const FIELDS=['bchn_rpc_host','bchn_rpc_port','bchn_rpc_user','stratum_port','status_port','share_difficulty','vardiff_enabled','vardiff_target_spm','vardiff_min','vardiff_max','webhook_url','miner_api_enabled','miner_api_hosts','firmware_check_enabled','coinbase_tag'];
+const BOOL_FIELDS=['vardiff_enabled','miner_api_enabled','firmware_check_enabled'];
+const CHECK_FIELDS=['notify_block','notify_best_share','notify_miner_offline'];
+const JSON_HDR={'content-type':'application/json'};
+async function postJSON(url,body){return (await fetch(url,{method:'POST',headers:JSON_HDR,body:JSON.stringify(body||{})})).json();}
+async function load(){
+ const c=await (await fetch('/config.json')).json();
+ FIELDS.forEach(f=>{const el=document.getElementById(f);if(!el)return;el.value=BOOL_FIELDS.includes(f)?String(!!c[f]):(c[f]==null?'':c[f]);});
+ CHECK_FIELDS.forEach(f=>{const el=document.getElementById(f);if(el)el.checked=!!c[f];});
+ // Keys pinned by the environment (Umbrel injects the node's RPC details) are
+ // shown but locked, instead of silently ignoring what the user types.
+ const locked=new Set(c.env_locked||[]);
+ locked.forEach(f=>{const el=document.getElementById(f);if(!el)return;el.disabled=true;el.title='Set by the environment; edits here are ignored.';if(f==='bchn_rpc_password')el.placeholder='provided automatically';});
+ if(locked.size)document.getElementById('envnote').hidden=false;
+}
+function collect(){
+ const body={};FIELDS.forEach(f=>{const el=document.getElementById(f);if(!el.disabled)body[f]=el.value;});
+ CHECK_FIELDS.forEach(f=>{body[f]=document.getElementById(f).checked;});
+ const pwEl=document.getElementById('bchn_rpc_password');
+ if(pwEl.value&&!pwEl.disabled)body.bchn_rpc_password=pwEl.value;
+ return body;
+}
+function num(id){return parseFloat(document.getElementById(id).value);}
+function validate(){
+ const port=v=>Number.isInteger(v)&&v>=1&&v<=65535;
+ const sp=num('stratum_port'),st=num('status_port'),sd=num('share_difficulty'),
+   tg=num('vardiff_target_spm'),mn=num('vardiff_min'),mx=num('vardiff_max');
+ if(!port(sp)||!port(st))return 'Ports must be whole numbers 1–65535';
+ if(sp===st)return 'Stratum and status ports must differ';
+ if(!(sd>=1))return 'Share difficulty must be ≥ 1';
+ if(!(tg>=1))return 'Target shares/min must be ≥ 1';
+ if(!(mn>=1))return 'Min diff must be ≥ 1';
+ if(!(mx>=mn))return 'Max diff must be ≥ min diff';
+ const wh=document.getElementById('webhook_url').value.trim().toLowerCase();
+ if(wh&&!(wh.startsWith('http://')||wh.startsWith('https://')))return 'Webhook URL must start with http:// or https://';
+ const tag=document.getElementById('coinbase_tag').value;
+ if(tag.length>64)return 'Coinbase tag must be at most 64 characters';
+ if(!/^[\\x20-\\x7e]*$/.test(tag))return 'Coinbase tag may only use plain characters: letters, digits, spaces and punctuation';
+ return '';
+}
+async function save(){
+ const msg=document.getElementById('msg');
+ const err=validate();
+ if(err){msg.innerHTML='<span style="color:#f85149">'+err+'</span>';return false;}
+ msg.innerHTML='Saving…';
+ try{
+  const r=await postJSON('/config',collect());
+  msg.innerHTML = r.ok ? '<span style="color:#3fb950">Saved. RPC, difficulty, vardiff, webhook, miner monitoring &amp; coinbase tag applied live; port changes need an app restart.</span>'
+                       : '<span style="color:#f85149">Error: '+(r.error||'unknown')+'</span>';
+  return !!r.ok;
+ }catch(e){msg.innerHTML='<span style="color:#f85149">Request failed: '+e+'</span>';return false;}
+}
+document.getElementById('save').onclick=save;
+document.getElementById('testrpc').onclick=async()=>{
+ const m=document.getElementById('rpcmsg');m.textContent='saving + testing…';
+ if(!(await save())){m.textContent='';return;}
+ try{const r=await postJSON('/test-rpc');
+  m.innerHTML = r.ok ? '<span style="color:#3fb950">OK — chain '+r.chain+', height '+r.blocks+(r.ibd?' (syncing)':' (synced)')+'</span>'
+                     : '<span style="color:#f85149">Failed: '+(r.error||'?')+'</span>';
+ }catch(e){m.innerHTML='<span style="color:#f85149">'+e+'</span>';}
+};
+document.getElementById('testhook').onclick=async()=>{
+ const m=document.getElementById('hookmsg');m.textContent='saving + sending…';
+ if(!(await save())){m.textContent='';return;}
+ try{const r=await postJSON('/test-webhook');
+  m.innerHTML = r.ok ? '<span style="color:#3fb950">Sent — check your endpoint</span>'
+                     : '<span style="color:#f85149">Failed: '+(r.error||'?')+'</span>';
+ }catch(e){m.innerHTML='<span style="color:#f85149">'+e+'</span>';}
+};
+document.getElementById('resetstats').onclick=async()=>{
+ if(!confirm('Reset all-time best difficulty, lifetime share counts, total hashes and mining time?\\n\\nFound blocks are kept. This cannot be undone.'))return;
+ const m=document.getElementById('resetmsg');m.textContent='resetting…';
+ try{const r=await postJSON('/reset-stats');
+  m.innerHTML = r.ok ? '<span style="color:#3fb950">Lifetime stats reset.</span>'
+                     : '<span style="color:#f85149">Failed: '+(r.error||'?')+'</span>';
+ }catch(e){m.innerHTML='<span style="color:#f85149">'+e+'</span>';}
+};
+document.getElementById('exportcfg').onclick=async()=>{
+ const m=document.getElementById('backupmsg');
+ try{
+  const c=await (await fetch('/config.json')).json();
+  delete c.bchn_rpc_password;                       // never export the secret
+  delete c.env_locked;                              // runtime info, not a setting
+  const blob=new Blob([JSON.stringify(c,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='axepool-btc-config.json';document.body.appendChild(a);a.click();
+  a.remove();URL.revokeObjectURL(a.href);
+  m.innerHTML='<span style="color:#3fb950">Downloaded settings JSON.</span>';
+ }catch(e){m.innerHTML='<span style="color:#f85149">Export failed: '+e+'</span>';}
+};
+document.getElementById('importcfg').onclick=()=>document.getElementById('importfile').click();
+document.getElementById('importfile').onchange=async(ev)=>{
+ const m=document.getElementById('backupmsg');const f=ev.target.files[0];
+ if(!f){return;}
+ try{
+  const data=JSON.parse(await f.text());
+  if(!data||typeof data!=='object')throw new Error('not a settings object');
+  // Load known fields into the form, then Save (reuses validation + live apply).
+  FIELDS.forEach(fld=>{if(data[fld]!=null){const el=document.getElementById(fld);if(el)el.value=BOOL_FIELDS.includes(fld)?String(!!data[fld]):data[fld];}});
+  CHECK_FIELDS.forEach(fld=>{if(data[fld]!=null){const el=document.getElementById(fld);if(el)el.checked=!!data[fld];}});
+  m.innerHTML='<span style="color:#3fb950">Imported — applying…</span>';
+  await save();
+ }catch(e){m.innerHTML='<span style="color:#f85149">Import failed: '+e+'</span>';}
+ ev.target.value='';                                // allow re-importing the same file
+};
+// ---- "Is this working?" diagnostics ------------------------------------
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+const DIAG_ICON={pending:'&#9675;',running:'&#8987;',pass:'&#10003;',warn:'!',fail:'&#10007;',skip:'&ndash;'};
+let diagTimer=null;
+function renderDiag(d){
+ const list=document.getElementById('diaglist');list.hidden=false;
+ const checks=d.checks||[];
+ list.innerHTML=checks.map(c=>'<li class="'+esc(c.status)+'"><span class="ic">'+(DIAG_ICON[c.status]||'?')+'</span><span class="nm">'+esc(c.name)+'</span><span class="dt">'+esc(c.detail||'')+'</span></li>').join('');
+ const msg=document.getElementById('diagmsg'),el=Math.round(d.elapsed||0);
+ const warns=checks.filter(c=>c.status==='warn');
+ const eb=document.getElementById('diagerr'),wb=document.getElementById('diagwarn');
+ if(d.running){msg.textContent='running… '+el+'s';}
+ else if(d.result==='pass'){msg.innerHTML='<span style="color:#3fb950">Everything is working'+(warns.length?' ('+warns.length+' warning'+(warns.length>1?'s':'')+' below)':'')+' &middot; '+el+'s</span>';}
+ else if(d.result==='fail'){msg.innerHTML='<span style="color:#f85149">Stopped at: '+esc(d.error&&d.error.check||'?')+'</span>';}
+ else if(d.result==='stopped'){msg.textContent='stopped';}
+ else msg.textContent='';
+ if(d.error&&!d.running){eb.hidden=false;eb.innerHTML='<b>Problem &mdash; '+esc(d.error.check)+'</b>'+esc(d.error.detail)+'<p><b>Potential fix</b>'+esc(d.error.fix)+'</p>';}
+ else eb.hidden=true;
+ if(warns.length&&!d.running){wb.hidden=false;wb.innerHTML=warns.map(c=>'<b>Warning &mdash; '+esc(c.name)+'</b>'+esc(c.detail)+(c.fix?'<p>'+esc(c.fix)+'</p>':'')).join('<br>');}
+ else wb.hidden=true;
+ document.getElementById('diagrun').disabled=!!d.running;
+ document.getElementById('diagstop').hidden=!d.running;
+}
+async function pollDiag(){
+ try{const d=await (await fetch('/diag')).json();renderDiag(d);
+  if(!d.running&&diagTimer){clearInterval(diagTimer);diagTimer=null;}
+ }catch(e){}
+}
+document.getElementById('diagrun').onclick=async()=>{
+ const m=document.getElementById('diagmsg');m.textContent='starting…';
+ try{const r=await postJSON('/diag/start');
+  if(!r.ok){m.textContent='could not start: '+(r.error||'?');return;}
+  if(!diagTimer)diagTimer=setInterval(pollDiag,1000);
+  pollDiag();
+ }catch(e){m.textContent='request failed: '+e;}
+};
+document.getElementById('diagstop').onclick=async()=>{try{await postJSON('/diag/stop');pollDiag();}catch(e){}};
+(async()=>{try{const d=await (await fetch('/diag')).json();
+ if(d.started){renderDiag(d);if(d.running&&!diagTimer)diagTimer=setInterval(pollDiag,1000);}
+}catch(e){}})();
+load();
+</script></body></html>"""
+
+
+def _json(status, obj):
+    return status, "application/json", json.dumps(obj).encode()
+
+
+def _to_int(v):
+    if isinstance(v, bool):
+        raise ValueError("boolean")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str):
+        return int(v.strip())
+    raise ValueError("not a number")
+
+
+def validate_updates(updates, current):
+    """Server-side sanity checks for a settings POST (the browser validates too,
+    but anything can POST). Normalizes numeric strings to ints in place and
+    returns an error message, or None when the updates are acceptable. A bad
+    value that got saved could otherwise crash-loop the app on its next start
+    (share difficulty 0 divides by zero, a port above 65535 fails to bind)."""
+    ints = {}
+    for k in ("bchn_rpc_port", "stratum_port", "status_port", "share_difficulty",
+              "vardiff_target_spm", "vardiff_min", "vardiff_max"):
+        if k in updates:
+            try:
+                ints[k] = _to_int(updates[k])
+            except (TypeError, ValueError):
+                return f"{k} must be a whole number"
+    for k in ("bchn_rpc_port", "stratum_port", "status_port"):
+        if k in ints and not 1 <= ints[k] <= 65535:
+            return f"{k} must be between 1 and 65535"
+    for k in ("share_difficulty", "vardiff_target_spm", "vardiff_min", "vardiff_max"):
+        if k in ints and ints[k] < 1:
+            return f"{k} must be at least 1"
+    if ints.get("stratum_port", current["stratum_port"]) == \
+            ints.get("status_port", current["status_port"]):
+        return "Stratum and status ports must differ"
+    if ints.get("vardiff_max", current["vardiff_max"]) < \
+            ints.get("vardiff_min", current["vardiff_min"]):
+        return "vardiff_max must be >= vardiff_min"
+    updates.update(ints)
+
+    for k in ("bchn_rpc_host", "bchn_rpc_user", "bchn_rpc_password", "webhook_url",
+              "zmq_block_endpoint"):
+        if k in updates and not isinstance(updates[k], str):
+            return f"{k} must be a string"
+    if "bchn_rpc_host" in updates:
+        host = updates["bchn_rpc_host"].strip()
+        if not host or len(host) > 253 or any(c in host for c in "/\\ ?#@\r\n"):
+            return "bchn_rpc_host must be a hostname or IP address"
+        updates["bchn_rpc_host"] = host
+    if "webhook_url" in updates:
+        url = updates["webhook_url"].strip()
+        if url and not url.lower().startswith(("http://", "https://")):
+            return "Webhook URL must start with http:// or https://"
+        if len(url) > 2048 or any(c in url for c in " \r\n"):
+            return "Webhook URL is not valid"
+        updates["webhook_url"] = url
+    if "miner_api_hosts" in updates:
+        if not isinstance(updates["miner_api_hosts"], str):
+            return "miner_api_hosts must be a string"
+        try:
+            hosts = parse_target_list(updates["miner_api_hosts"])
+        except ValueError as e:
+            return f"Miner addresses: {e}"
+        updates["miner_api_hosts"] = " ".join(
+            ip if port == 80 else f"{ip}:{port}" for ip, port in hosts)
+    if "bitcoin_network" in updates:
+        try:
+            if not isinstance(updates["bitcoin_network"], str) \
+                    or not updates["bitcoin_network"].strip():
+                raise AddressError("not a network name")
+            chain_name(updates["bitcoin_network"])
+        except AddressError:
+            return "bitcoin_network must be mainnet, testnet, testnet4, signet or regtest"
+    if "coinbase_tag" in updates:
+        err = coinbase_tag_error(updates["coinbase_tag"])
+        if err:
+            return f"Coinbase tag {err}"
+    for k in ("vardiff_enabled", "notify_block", "notify_best_share",
+              "notify_miner_offline", "zmq_enabled", "miner_api_enabled",
+              "firmware_check_enabled"):
+        v = updates.get(k)
+        if v is None or isinstance(v, bool):
+            continue
+        if not (isinstance(v, str)
+                and v.strip().lower() in ("1", "0", "true", "false", "yes", "no",
+                                          "on", "off")):
+            return f"{k} must be true or false"
+    return None
+
+
+class StatusServer:
+    def __init__(self, server, jobs, host, port, history=None, diag=None, metrics=None,
+                 poller=None, firmware=None):
+        self.server = server
+        self.jobs = jobs
+        self.host = host
+        self.port = port
+        self.history = history
+        self.diag = diag
+        self.metrics = metrics
+        self.poller = poller
+        self.firmware = firmware
+        self._active = 0
+
+    async def start(self):
+        return await asyncio.start_server(self._handle, self.host, self.port)
+
+    async def _read_request(self, reader):
+        request_line = await reader.readline()
+        parts = request_line.decode(errors="replace").split()
+        method = parts[0].upper() if parts else "GET"
+        path = parts[1] if len(parts) > 1 else "/"
+        headers = {}
+        while True:
+            line = await reader.readline()
+            if line in (b"\r\n", b"\n", b""):
+                break
+            if len(headers) >= MAX_HEADERS:
+                raise ValueError("too many headers")
+            k, _, v = line.decode(errors="replace").partition(":")
+            headers[k.strip().lower()] = v.strip()
+        body = b""
+        if method == "POST":
+            n = int(headers.get("content-length", "0") or 0)
+            if n > MAX_BODY:
+                raise ValueError("body too large")
+            if n > 0:
+                body = await reader.readexactly(n)
+        return method, path, headers, body
+
+    async def _handle(self, reader, writer):
+        if self._active >= MAX_HTTP_CONNECTIONS:
+            writer.close()
+            return
+        self._active += 1
+        try:
+            try:
+                method, path, headers, body = await asyncio.wait_for(
+                    self._read_request(reader), REQUEST_TIMEOUT)
+            except (asyncio.TimeoutError, ValueError, asyncio.IncompleteReadError):
+                return
+            status, ctype, out = await self._route(method, path, headers, body)
+            head = (f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n"
+                    f"Content-Length: {len(out)}\r\n"
+                    "X-Content-Type-Options: nosniff\r\n"
+                    "Referrer-Policy: no-referrer\r\n"
+                    "Cache-Control: no-store\r\n")
+            if path.startswith(CORS_OPEN):
+                head += "Access-Control-Allow-Origin: *\r\n"
+            head += "Connection: close\r\n\r\n"
+            writer.write(head.encode() + out)
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            self._active -= 1
+            try:
+                writer.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _is_json(headers):
+        ct = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        return ct == "application/json"
+
+    async def _route(self, method, path, headers, body):
+        if method == "OPTIONS":
+            # No CORS grant for preflights: cross-origin JSON POSTs are refused.
+            return "204 No Content", "text/plain", b""
+        if path.startswith("/status"):
+            out = json.dumps(build_snapshot(self.server, self.jobs), default=str)
+            return "200 OK", "application/json", out.encode()
+        if path.startswith("/metrics"):
+            try:
+                out = build_metrics(self.server, self.jobs)
+                return "200 OK", METRICS_CT, out.encode()
+            except Exception as e:
+                return ("500 Internal Server Error",
+                        "text/plain; charset=utf-8", f"# error: {e}\n".encode())
+        if path.startswith("/history"):
+            pts = self.history.snapshot() if self.history else []
+            return _json("200 OK", {"points": pts})
+        if path.startswith("/series"):
+            return await self._series(path)
+        if path.startswith("/devices"):
+            if self.poller is None:
+                return _json("503 Service Unavailable",
+                             {"ok": False, "error": "miner polling unavailable"})
+            ids = [c.raw_user for c in self.server.clients
+                   if c.authorized and not c.internal and not c.monitor and c.raw_user]
+            snap = self.poller.snapshot(ids)
+            if self.firmware is not None:
+                for row in snap["miners"]:
+                    m = row.get("miner")
+                    row["firmware_status"] = (self.firmware.status(m.get("firmware"),
+                                                                   m.get("version"))
+                                              if m else None)
+            return _json("200 OK", snap)
+        if path.startswith("/config.json"):
+            out = config.redacted(config.load())
+            out["env_locked"] = config.env_locked()
+            return _json("200 OK", out)
+        if path.startswith("/ui-prefs") and method != "POST":
+            return self._get_ui_prefs()
+        if path.startswith("/diag") and method != "POST":
+            if self.diag is None:
+                return _json("503 Service Unavailable",
+                             {"ok": False, "error": "diagnostics unavailable"})
+            return _json("200 OK", self.diag.snapshot())
+        if path.startswith("/config") and not path.startswith("/config.json") \
+                and method != "POST":
+            return "200 OK", "text/html; charset=utf-8", CONFIG_HTML.encode()
+
+        # --- state-changing routes: POST + JSON content type only ----------- #
+        mutating = ("/test-rpc", "/test-webhook", "/reset-stats", "/ui-prefs", "/config",
+                    "/diag/start", "/diag/stop")
+        if path.startswith(mutating):
+            if method != "POST":
+                return _json("405 Method Not Allowed",
+                             {"ok": False, "error": "POST only"})
+            if not self._is_json(headers):
+                return _json("415 Unsupported Media Type",
+                             {"ok": False,
+                              "error": "Content-Type must be application/json"})
+            loop = asyncio.get_running_loop()
+            if path.startswith("/test-rpc"):
+                # Network calls run in the executor: a 30 s RPC timeout must
+                # never stall share processing for every connected miner.
+                return await loop.run_in_executor(None, self._test_rpc)
+            if path.startswith("/test-webhook"):
+                return await loop.run_in_executor(None, self._test_webhook)
+            if path.startswith("/reset-stats"):
+                return self._reset_stats()
+            if path.startswith("/ui-prefs"):
+                return self._save_ui_prefs(body)
+            if path.startswith("/diag/"):
+                if self.diag is None:
+                    return _json("503 Service Unavailable",
+                                 {"ok": False, "error": "diagnostics unavailable"})
+                if path.startswith("/diag/start"):
+                    if self.diag.start():
+                        return _json("200 OK", {"ok": True})
+                    return _json("409 Conflict",
+                                 {"ok": False, "error": "checks are already running"})
+                self.diag.stop()
+                return _json("200 OK", {"ok": True})
+            return self._save_config(body)
+        return "200 OK", "text/html; charset=utf-8", DASHBOARD_HTML.encode()
+
+    async def _series(self, path):
+        """GET /series?range=1h&miner=<identity>&since=<ts>  chart points
+           GET /series/miners                               identities + last seen
+        SQLite reads run in the executor so they never stall the event loop."""
+        if self.metrics is None or not self.metrics.enabled:
+            return _json("503 Service Unavailable",
+                         {"ok": False, "error": "metrics store unavailable"})
+        from urllib.parse import urlsplit, parse_qs
+        parts = urlsplit(path)
+        q = {k: v[-1] for k, v in parse_qs(parts.query).items()}
+        loop = asyncio.get_running_loop()
+        if parts.path.rstrip("/") == "/series/miners":
+            last = await loop.run_in_executor(None, self.metrics.miners)
+            return _json("200 OK", {"miners": [{"miner": m, "last_seen": t}
+                                               for m, t in sorted(last.items())]})
+        since = q.get("since")
+        if since is not None:
+            try:
+                since = int(since)
+            except ValueError:
+                return _json("400 Bad Request", {"ok": False, "error": "since must be an integer"})
+        try:
+            out = await loop.run_in_executor(
+                None, self.metrics.series, q.get("range", "1h"), q.get("miner", ""), since)
+        except ValueError as e:
+            return _json("400 Bad Request", {"ok": False, "error": str(e)})
+        return _json("200 OK", out)
+
+    def _test_rpc(self):
+        try:
+            info = self.jobs.rpc.getblockchaininfo()
+            out = {"ok": True, "chain": info.get("chain"),
+                   "blocks": info.get("blocks"),
+                   "ibd": bool(info.get("initialblockdownload"))}
+        except Exception as e:
+            out = {"ok": False, "error": str(e)}
+        return "200 OK", "application/json", json.dumps(out).encode()
+
+    def _get_ui_prefs(self):
+        cfg = config.load()
+        hc = cfg.get("hidden_cards")
+        if not isinstance(hc, list):
+            hc = []
+        return ("200 OK", "application/json",
+                json.dumps({"hidden_cards": hc}).encode())
+
+    def _save_ui_prefs(self, body):
+        # Dashboard view preference only — saved to config.json but NOT run through
+        # apply_config, so hiding a card never reconnects RPC or disturbs mining.
+        try:
+            data = json.loads(body or b"{}")
+            if not isinstance(data, dict):
+                raise ValueError("expected object")
+            hc = data.get("hidden_cards", [])
+            if not isinstance(hc, list):
+                raise ValueError("hidden_cards must be a list")
+            # Card ids are our own [a-z0-9_] identifiers; anything else is
+            # dropped so nothing unexpected is ever stored or rendered.
+            hc = list(dict.fromkeys(x for x in hc
+                                    if isinstance(x, str) and _CARD_ID.fullmatch(x)))[:64]
+            config.save({"hidden_cards": hc})
+        except Exception as e:
+            return ("400 Bad Request", "application/json",
+                    json.dumps({"ok": False, "error": str(e)}).encode())
+        return "200 OK", "application/json", json.dumps({"ok": True}).encode()
+
+    def _reset_stats(self):
+        try:
+            self.jobs.stats.reset()
+            # Clear live per-connection best so the pool best reflects the reset
+            # until miners reconnect (accepted/rejected shown are lifetime already).
+            for c in list(self.server.clients):
+                c.best_diff = 0.0
+            out = {"ok": True}
+        except Exception as e:
+            out = {"ok": False, "error": str(e)}
+        return "200 OK", "application/json", json.dumps(out).encode()
+
+    def _test_webhook(self):
+        url = self.jobs.webhook_url
+        if not url:
+            out = {"ok": False, "error": "no webhook URL saved — Save settings first"}
+        else:
+            try:
+                self.jobs._post_webhook(url, {
+                    "event": "test", "server": "AxePool BTC",
+                    "message": "AxePool BTC test webhook"})
+                out = {"ok": True}
+            except Exception as e:
+                out = {"ok": False, "error": str(e)}
+        return "200 OK", "application/json", json.dumps(out).encode()
+
+    def _save_config(self, body):
+        try:
+            data = json.loads(body or b"{}")
+            if not isinstance(data, dict):
+                raise ValueError("expected object")
+        except Exception as e:
+            return ("400 Bad Request", "application/json",
+                    json.dumps({"ok": False, "error": f"bad json: {e}"}).encode())
+        updates = {}
+        for k in config.DEFAULTS:
+            if k not in data or k == "hidden_cards":     # layout has its own route
+                continue
+            # blank means "leave unchanged" for every field except webhook_url,
+            # miner_api_hosts and coinbase_tag, where an empty string clears it.
+            if data[k] == "" and k not in ("webhook_url", "miner_api_hosts",
+                                           "coinbase_tag"):
+                continue
+            updates[k] = data[k]
+        err = validate_updates(updates, config.load())
+        if err:
+            return _json("400 Bad Request", {"ok": False, "error": err})
+        try:
+            config.save(updates)
+            cfg = config.load()
+            self.jobs.apply_config(cfg)
+            if self.poller is not None:
+                self.poller.enabled = cfg["miner_api_enabled"]
+                self.poller.set_manual(parse_target_list(cfg["miner_api_hosts"]))
+            if self.firmware is not None:
+                self.firmware.enabled = cfg["firmware_check_enabled"]
+        except Exception as e:
+            return ("500 Internal Server Error", "application/json",
+                    json.dumps({"ok": False, "error": str(e)}).encode())
+        return ("200 OK", "application/json",
+                json.dumps({"ok": True, "config": config.redacted(cfg)}).encode())
